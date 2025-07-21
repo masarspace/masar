@@ -85,10 +85,10 @@ export function PurchasingStatusTable() {
   const handleUpdateStatus = async (orderId: string, newStatus: PurchaseOrder['status']) => {
      try {
         await runTransaction(db, async (transaction) => {
-            const orderRef = doc(db, 'purchaseOrders', orderId);
+            const orderRef = doc(db, 'purchaseOrders', orderId).withConverter(purchaseOrderConverter);
             
             // Step 1: Read all documents first
-            const orderDoc = await transaction.get(orderRef.withConverter(purchaseOrderConverter));
+            const orderDoc = await transaction.get(orderRef);
             if (!orderDoc.exists()) throw new Error("Purchase order not found.");
             
             const orderData = orderDoc.data();
@@ -211,23 +211,14 @@ export function PurchasingStatusTable() {
                   {order.receivedAt ? (formattedDates.get(order.id)?.receivedAt || <Skeleton className="h-5 w-24" />) : 'N/A'}
                 </TableCell>
                 <TableCell>
-                   <Tooltip>
-                      <TooltipTrigger asChild>
-                          <div className="truncate max-w-xs cursor-default">
-                              {order.items.map(i => `${i.quantity}${i.unit} x ${getMaterialName(i.materialId)}`).join(', ')}
-                          </div>
-                      </TooltipTrigger>
-                      <TooltipContent>
-                          <ul className="list-disc list-inside p-2 space-y-1">
-                              {order.items.map((i, index) => (
-                                  <li key={index}>
-                                      <span>{i.quantity}{i.unit} x {getMaterialName(i.materialId)}</span>
-                                      {i.note && <p className="text-muted-foreground italic text-xs pl-2">- {i.note}</p>}
-                                  </li>
-                              ))}
-                          </ul>
-                      </TooltipContent>
-                  </Tooltip>
+                    <div>
+                        {order.items.map((i, index) => (
+                            <div key={index} className={index < order.items.length - 1 ? 'mb-1' : ''}>
+                                <span>{i.quantity}{i.unit} x {getMaterialName(i.materialId)}</span>
+                                {i.note && <p className="text-muted-foreground italic text-xs pl-2">- {i.note}</p>}
+                            </div>
+                        ))}
+                    </div>
                 </TableCell>
                 <TableCell className="hidden md:table-cell">${getOrderTotal(order.items).toFixed(2)}</TableCell>
                 <TableCell>
