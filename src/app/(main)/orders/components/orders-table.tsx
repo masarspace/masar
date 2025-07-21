@@ -3,7 +3,7 @@
 
 import * as React from 'react';
 import { useCollection } from 'react-firebase-hooks/firestore';
-import { collection, doc, updateDoc, deleteDoc, runTransaction, writeBatch } from 'firebase/firestore';
+import { collection, doc, writeBatch, runTransaction } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { orderConverter, drinkConverter, materialConverter } from '@/lib/converters';
 import {
@@ -32,7 +32,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { MoreHorizontal, PlusCircle, Edit, Trash2, CheckCircle, XCircle } from 'lucide-react';
-import type { Order, OrderItem, Drink, Material } from '@/lib/types';
+import type { Order, OrderItem, Drink } from '@/lib/types';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
@@ -45,6 +45,7 @@ export function OrdersTable() {
   const [ordersSnapshot, ordersLoading] = useCollection(collection(db, 'orders').withConverter(orderConverter));
   const [drinksSnapshot, drinksLoading] = useCollection(collection(db, 'drinks').withConverter(drinkConverter));
   const [materialsSnapshot, materialsLoading] = useCollection(collection(db, 'materials').withConverter(materialConverter));
+  const [formattedDates, setFormattedDates] = React.useState<Record<string, string>>({});
 
   const { toast } = useToast();
 
@@ -56,6 +57,29 @@ export function OrdersTable() {
   const [selectedOrder, setSelectedOrder] = React.useState<Order | null>(null);
   const [orderItems, setOrderItems] = React.useState<OrderItem[]>([]);
   const [currentStatus, setCurrentStatus] = React.useState<Order['status'] | undefined>();
+
+  React.useEffect(() => {
+    if (orders.length > 0) {
+        const newFormattedDates: Record<string, string> = {};
+        for (const order of orders) {
+            try {
+                newFormattedDates[order.id] = new Intl.DateTimeFormat('en-EG', {
+                    year: 'numeric',
+                    month: 'short',
+                    day: 'numeric',
+                    hour: 'numeric',
+                    minute: '2-digit',
+                    hour12: true,
+                    timeZone: 'Africa/Cairo',
+                }).format(new Date(order.createdAt));
+            } catch (e) {
+                newFormattedDates[order.id] = new Date(order.createdAt).toLocaleDateString(); // Fallback
+            }
+        }
+        setFormattedDates(newFormattedDates);
+    }
+  }, [orders]);
+
 
   React.useEffect(() => {
     if(selectedOrder) {
@@ -118,15 +142,14 @@ export function OrdersTable() {
   };
 
   const handleUpdateStatus = async (order: Order, newStatus: Order['status']) => {
-    if (order.status === newStatus) return;
+    if (order.status === newStatus || order.status !== 'Pending') return;
 
-    try {
-        await runTransaction(db, async (transaction) => {
-            const orderRef = doc(db, 'orders', order.id);
-
-            // Case 1: Pending -> Completed (Deduct stock)
-            if (order.status !== 'Completed' && newStatus === 'Completed') {
+    if (newStatus === 'Completed') {
+        try {
+            await runTransaction(db, async (transaction) => {
+                const orderRef = doc(db, 'orders', order.id);
                 const stockToDeduct = new Map<string, number>();
+
                 for (const item of order.items) {
                     const drink = allDrinks.find(d => d.id === item.drinkId);
                     if (drink) {
@@ -135,43 +158,31 @@ export function OrdersTable() {
                         }
                     }
                 }
+
                 const materialRefs = Array.from(stockToDeduct.keys()).map(id => doc(db, 'materials', id).withConverter(materialConverter));
                 const materialDocs = await Promise.all(materialRefs.map(ref => transaction.get(ref)));
 
                 for (const materialDoc of materialDocs) {
                     if (!materialDoc.exists()) throw new Error(`Material ${materialDoc.id} not found.`);
-                    const newStock = materialDoc.data().stock - (stockToDeduct.get(materialDoc.id) || 0);
-                    if (newStock < 0) throw new Error(`Insufficient stock for ${materialDoc.data().name}.`);
+                    const currentStock = materialDoc.data().stock;
+                    const requiredStock = stockToDeduct.get(materialDoc.id) || 0;
+                    if (currentStock < requiredStock) {
+                        throw new Error(`Insufficient stock for ${materialDoc.data().name}. Required: ${requiredStock}, available: ${currentStock}`);
+                    }
+                    const newStock = currentStock - requiredStock;
                     transaction.update(materialDoc.ref, { stock: newStock });
                 }
-            }
-            // Case 2: Completed -> Pending or Cancelled (Return stock)
-            else if (order.status === 'Completed' && newStatus !== 'Completed') {
-                const stockToReturn = new Map<string, number>();
-                for (const item of order.items) {
-                    const drink = allDrinks.find(d => d.id === item.drinkId);
-                    if (drink) {
-                        for (const recipeItem of drink.recipe) {
-                            stockToReturn.set(recipeItem.materialId, (stockToReturn.get(recipeItem.materialId) || 0) + (recipeItem.quantity * item.quantity));
-                        }
-                    }
-                }
-                const materialRefs = Array.from(stockToReturn.keys()).map(id => doc(db, 'materials', id).withConverter(materialConverter));
-                const materialDocs = await Promise.all(materialRefs.map(ref => transaction.get(ref)));
 
-                for (const materialDoc of materialDocs) {
-                    if (materialDoc.exists()) {
-                        const newStock = materialDoc.data().stock + (stockToReturn.get(materialDoc.id) || 0);
-                        transaction.update(materialDoc.ref, { stock: newStock });
-                    }
-                }
-            }
-            
-            transaction.update(orderRef, { status: newStatus });
-        });
-        toast({ title: "Order status updated successfully!" });
-    } catch (error: any) {
-        toast({ variant: "destructive", title: "Error updating status", description: error.message });
+                transaction.update(orderRef, { status: newStatus });
+            });
+            toast({ title: "Order status updated successfully!" });
+        } catch (error: any) {
+            toast({ variant: "destructive", title: "Error updating status", description: error.message });
+        }
+    } else if (newStatus === 'Cancelled') {
+        const orderRef = doc(db, 'orders', order.id);
+        await updateDoc(orderRef, { status: newStatus });
+        toast({ title: "Order cancelled." });
     }
   };
 
@@ -284,23 +295,6 @@ export function OrdersTable() {
     }, 0);
   }
 
-  const formatOrderDate = (isoString: string) => {
-    try {
-      return new Intl.DateTimeFormat('en-EG', {
-        year: 'numeric',
-        month: 'short',
-        day: 'numeric',
-        hour: 'numeric',
-        minute: '2-digit',
-        hour12: true,
-        timeZone: 'Africa/Cairo',
-      }).format(new Date(isoString));
-    } catch (e) {
-      return new Date(isoString).toLocaleDateString(); // Fallback
-    }
-  }
-
-
   if (ordersLoading || drinksLoading || materialsLoading) {
      return (
        <div className="space-y-4">
@@ -358,7 +352,7 @@ export function OrdersTable() {
             {orders.map((order) => (
               <TableRow key={order.id}>
                 <TableCell className="font-mono text-xs">{order.id}</TableCell>
-                <TableCell>{formatOrderDate(order.createdAt)}</TableCell>
+                <TableCell>{formattedDates[order.id] || <Skeleton className="h-5 w-36" />}</TableCell>
                 <TableCell>
                   {order.items.map(i => `${i.quantity}x ${getDrinkName(i.drinkId)}`).join(', ')}
                 </TableCell>
@@ -389,8 +383,8 @@ export function OrdersTable() {
                             <DropdownMenuSeparator />
                         </>
                        )}
-                       <DropdownMenuItem onClick={() => handleEditClick(order)} disabled={order.status === 'Cancelled'}>
-                        <Edit className="mr-2 h-4 w-4" /> Edit
+                       <DropdownMenuItem onClick={() => handleEditClick(order)}>
+                        <Edit className="mr-2 h-4 w-4" />
                       </DropdownMenuItem>
                       <DropdownMenuItem onClick={() => handleDeleteClick(order)} className="text-destructive">
                         <Trash2 className="mr-2 h-4 w-4" /> Delete
