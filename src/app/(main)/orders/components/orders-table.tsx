@@ -82,45 +82,38 @@ export function OrdersTable() {
   const handleDeleteClick = async (order: Order) => {
     if (!order.id) return;
     
-    // Only return stock if the order was 'Completed' before deletion
-    if (order.status === 'Completed') {
-      try {
-        await runTransaction(db, async (transaction) => {
-          // Calculate stock to return
-          const stockToReturn = new Map<string, number>();
-          for (const item of order.items) {
-            const drink = allDrinks.find(d => d.id === item.drinkId);
-            if (drink) {
-              for (const recipeItem of drink.recipe) {
-                stockToReturn.set(recipeItem.materialId, (stockToReturn.get(recipeItem.materialId) || 0) + (recipeItem.quantity * item.quantity));
-              }
-            }
-          }
+    try {
+      await runTransaction(db, async (transaction) => {
+        const orderRef = doc(db, 'orders', order.id);
 
-          // Read all material docs
-          const materialRefs = Array.from(stockToReturn.keys()).map(id => doc(db, 'materials', id));
-          const materialDocs = await Promise.all(materialRefs.map(ref => transaction.get(ref.withConverter(materialConverter))));
-          
-          // Write all updates
-          for (const materialDoc of materialDocs) {
-            if (materialDoc.exists()) {
-              const stockToAdd = stockToReturn.get(materialDoc.id) || 0;
-              const newStock = materialDoc.data().stock + stockToAdd;
-              transaction.update(materialDoc.ref, { stock: newStock });
+        if (order.status === 'Completed') {
+            const stockToReturn = new Map<string, number>();
+            for (const item of order.items) {
+                const drink = allDrinks.find(d => d.id === item.drinkId);
+                if (drink) {
+                    for (const recipeItem of drink.recipe) {
+                        stockToReturn.set(recipeItem.materialId, (stockToReturn.get(recipeItem.materialId) || 0) + (recipeItem.quantity * item.quantity));
+                    }
+                }
             }
-          }
-          
-          // Delete the order
-          transaction.delete(doc(db, 'orders', order.id));
-        });
-        toast({ title: "Order deleted and stock restored." });
-      } catch (error: any) {
-        toast({ variant: "destructive", title: "Error deleting order", description: error.message });
-      }
-    } else {
-      // If not completed, just delete it
-      await deleteDoc(doc(db, 'orders', order.id));
-      toast({ title: "Order deleted." });
+
+            const materialRefs = Array.from(stockToReturn.keys()).map(id => doc(db, 'materials', id));
+            const materialDocs = await Promise.all(materialRefs.map(ref => transaction.get(ref.withConverter(materialConverter))));
+            
+            for (const materialDoc of materialDocs) {
+                if (materialDoc.exists()) {
+                    const stockToAdd = stockToReturn.get(materialDoc.id) || 0;
+                    const newStock = materialDoc.data().stock + stockToAdd;
+                    transaction.update(materialDoc.ref, { stock: newStock });
+                }
+            }
+        }
+        
+        transaction.delete(orderRef);
+      });
+      toast({ title: "Order deleted successfully." });
+    } catch (error: any) {
+      toast({ variant: "destructive", title: "Error deleting order", description: error.message });
     }
   };
 
@@ -132,7 +125,7 @@ export function OrdersTable() {
             const orderRef = doc(db, 'orders', order.id);
 
             // Case 1: Pending -> Completed (Deduct stock)
-            if (order.status === 'Pending' && newStatus === 'Completed') {
+            if (order.status !== 'Completed' && newStatus === 'Completed') {
                 const stockToDeduct = new Map<string, number>();
                 for (const item of order.items) {
                     const drink = allDrinks.find(d => d.id === item.drinkId);
@@ -153,7 +146,7 @@ export function OrdersTable() {
                 }
             }
             // Case 2: Completed -> Pending or Cancelled (Return stock)
-            else if (order.status === 'Completed' && (newStatus === 'Pending' || newStatus === 'Cancelled')) {
+            else if (order.status === 'Completed' && newStatus !== 'Completed') {
                 const stockToReturn = new Map<string, number>();
                 for (const item of order.items) {
                     const drink = allDrinks.find(d => d.id === item.drinkId);
@@ -219,7 +212,7 @@ export function OrdersTable() {
                 
                 const stockChanges = new Map<string, number>(); // positive to add stock, negative to remove
 
-                // If was completed, return stock for old items
+                // Step 1: Calculate stock to return from the OLD order if it was completed.
                 if (oldStatus === 'Completed') {
                     for(const item of oldItems) {
                         const drink = allDrinks.find(d => d.id === item.drinkId);
@@ -231,7 +224,7 @@ export function OrdersTable() {
                     }
                 }
 
-                // If will be completed, deduct stock for new items
+                // Step 2: Calculate stock to deduct for the NEW order if it is now completed.
                 if (newStatus === 'Completed') {
                      for(const item of itemsToSave) {
                         const drink = allDrinks.find(d => d.id === item.drinkId);
@@ -262,7 +255,7 @@ export function OrdersTable() {
             toast({ title: "Order updated successfully!" });
 
         } else {
-            // Creating a new order
+            // Creating a new order - NO stock change here, only when completed.
             const batch = writeBatch(db);
             const newOrderRef = doc(collection(db, 'orders'));
             batch.set(newOrderRef.withConverter(orderConverter), {
@@ -389,8 +382,8 @@ export function OrdersTable() {
                                 <CheckCircle className="mr-2 h-4 w-4 text-green-500" />
                                 Mark as Completed
                             </DropdownMenuItem>
-                            <DropdownMenuItem onClick={() => handleUpdateStatus(order, 'Cancelled')} className="text-destructive">
-                                <XCircle className="mr-2 h-4 w-4" />
+                            <DropdownMenuItem onClick={() => handleUpdateStatus(order, 'Cancelled')}>
+                                <XCircle className="mr-2 h-4 w-4 text-destructive" />
                                 Mark as Cancelled
                             </DropdownMenuItem>
                             <DropdownMenuSeparator />
