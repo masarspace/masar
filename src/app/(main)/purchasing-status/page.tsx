@@ -1,25 +1,25 @@
-import { OrdersTable } from './components/orders-table';
-import { ShoppingCart } from 'lucide-react';
+import { PurchasingStatusTable } from './components/purchasing-status-table';
+import { Truck } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 
-export default function OrdersPage() {
+export default function PurchasingStatusPage() {
   return (
     <div className="flex flex-col gap-8 h-full p-4 sm:p-6 lg:p-8">
       <div>
         <h1 className="text-3xl font-bold tracking-tight flex items-center gap-2">
-          <ShoppingCart className="w-8 h-8" /> POS Order Tracking
+          <Truck className="w-8 h-8" /> Purchasing Status
         </h1>
         <p className="text-muted-foreground">
-          Manage customer orders for your buffet drinks.
+          Track and manage all your ongoing and completed purchase orders.
         </p>
       </div>
       <Card className="flex-1">
         <CardHeader>
-          <CardTitle>All POS Orders</CardTitle>
-          <CardDescription>A list of all customer point-of-sale orders.</CardDescription>
+            <CardTitle>All Purchase Orders</CardTitle>
+            <CardDescription>A list of all purchase orders and their current status.</CardDescription>
         </CardHeader>
         <CardContent>
-          <OrdersTable />
+            <PurchasingStatusTable />
         </CardContent>
       </Card>
     </div>

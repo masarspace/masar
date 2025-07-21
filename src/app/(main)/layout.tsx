@@ -11,6 +11,10 @@ import {
   SidebarMenuItem,
   SidebarMenuButton,
   SidebarInset,
+  SidebarSeparator,
+  SidebarGroup,
+  SidebarGroupLabel,
+  SidebarGroupContent,
 } from "@/components/ui/sidebar";
 import { Icons } from "@/components/icons";
 import {
@@ -18,6 +22,9 @@ import {
   Package,
   GlassWater,
   ShoppingCart,
+  Tags,
+  Truck,
+  ClipboardList,
 } from "lucide-react";
 import { usePathname } from "next/navigation";
 
@@ -56,42 +63,101 @@ export default function MainLayout({
               <SidebarMenuItem>
                 <SidebarMenuButton
                   asChild
-                  href="/materials"
-                  isActive={pathname.startsWith("/materials")}
-                  tooltip="Materials"
-                >
-                  <Link href="/materials">
-                    <Package />
-                    <span>Materials</span>
-                  </Link>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-              <SidebarMenuItem>
-                <SidebarMenuButton
-                  asChild
-                  href="/drinks"
-                  isActive={pathname.startsWith("/drinks")}
-                  tooltip="Drinks"
-                >
-                   <Link href="/drinks">
-                    <GlassWater />
-                    <span>Drinks</span>
-                  </Link>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-              <SidebarMenuItem>
-                <SidebarMenuButton
-                  asChild
                   href="/orders"
                   isActive={pathname.startsWith("/orders")}
-                  tooltip="Orders"
+                  tooltip="POS Orders"
                 >
                   <Link href="/orders">
                     <ShoppingCart />
-                    <span>Orders</span>
+                    <span>POS Orders</span>
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>
+
+              <SidebarSeparator />
+
+              <SidebarGroup>
+                <SidebarGroupLabel>Inventory</SidebarGroupLabel>
+                <SidebarGroupContent>
+                  <SidebarMenu>
+                     <SidebarMenuItem>
+                      <SidebarMenuButton
+                        asChild
+                        href="/materials"
+                        isActive={pathname.startsWith("/materials")}
+                        tooltip="Materials"
+                      >
+                        <Link href="/materials">
+                          <Package />
+                          <span>Materials</span>
+                        </Link>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                    <SidebarMenuItem>
+                      <SidebarMenuButton
+                        asChild
+                        href="/drinks"
+                        isActive={pathname.startsWith("/drinks")}
+                        tooltip="Recipes"
+                      >
+                        <Link href="/drinks">
+                          <GlassWater />
+                          <span>Recipes</span>
+                        </Link>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  </SidebarMenu>
+                </SidebarGroupContent>
+              </SidebarGroup>
+              
+              <SidebarSeparator />
+
+              <SidebarGroup>
+                <SidebarGroupLabel>Purchasing</SidebarGroupLabel>
+                 <SidebarGroupContent>
+                    <SidebarMenu>
+                       <SidebarMenuItem>
+                        <SidebarMenuButton
+                          asChild
+                          href="/purchase-orders"
+                          isActive={pathname.startsWith("/purchase-orders")}
+                          tooltip="New Purchase"
+                        >
+                          <Link href="/purchase-orders">
+                            <ClipboardList />
+                            <span>New Purchase</span>
+                          </Link>
+                        </SidebarMenuButton>
+                      </SidebarMenuItem>
+                      <SidebarMenuItem>
+                        <SidebarMenuButton
+                          asChild
+                          href="/purchasing-status"
+                          isActive={pathname.startsWith("/purchasing-status")}
+                          tooltip="Purchase Status"
+                        >
+                          <Link href="/purchasing-status">
+                            <Truck />
+                            <span>Purchase Status</span>
+                          </Link>
+                        </SidebarMenuButton>
+                      </SidebarMenuItem>
+                      <SidebarMenuItem>
+                        <SidebarMenuButton
+                          asChild
+                          href="/categories"
+                          isActive={pathname.startsWith("/categories")}
+                          tooltip="Categories"
+                        >
+                          <Link href="/categories">
+                            <Tags />
+                            <span>Categories</span>
+                          </Link>
+                        </SidebarMenuButton>
+                      </SidebarMenuItem>
+                    </SidebarMenu>
+                 </SidebarGroupContent>
+              </SidebarGroup>
             </SidebarMenu>
           </SidebarContent>
         </Sidebar>

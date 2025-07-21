@@ -1,25 +1,25 @@
-import { OrdersTable } from './components/orders-table';
-import { ShoppingCart } from 'lucide-react';
+import { NewPurchaseOrderForm } from './components/new-purchase-order-form';
+import { ClipboardList } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 
-export default function OrdersPage() {
+export default function PurchaseOrdersPage() {
   return (
     <div className="flex flex-col gap-8 h-full p-4 sm:p-6 lg:p-8">
       <div>
         <h1 className="text-3xl font-bold tracking-tight flex items-center gap-2">
-          <ShoppingCart className="w-8 h-8" /> POS Order Tracking
+          <ClipboardList className="w-8 h-8" /> New Purchase Order
         </h1>
         <p className="text-muted-foreground">
-          Manage customer orders for your buffet drinks.
+          Create a new order to replenish your material inventory.
         </p>
       </div>
       <Card className="flex-1">
         <CardHeader>
-          <CardTitle>All POS Orders</CardTitle>
-          <CardDescription>A list of all customer point-of-sale orders.</CardDescription>
+            <CardTitle>Create Purchase Order</CardTitle>
+            <CardDescription>Select materials and specify quantities to order.</CardDescription>
         </CardHeader>
         <CardContent>
-          <OrdersTable />
+            <NewPurchaseOrderForm />
         </CardContent>
       </Card>
     </div>
