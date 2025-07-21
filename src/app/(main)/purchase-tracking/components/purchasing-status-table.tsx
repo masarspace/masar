@@ -3,9 +3,9 @@
 
 import * as React from 'react';
 import { useCollection } from 'react-firebase-hooks/firestore';
-import { collection, doc, runTransaction, query, orderBy, deleteField, writeBatch } from 'firebase/firestore';
+import { collection, doc, runTransaction, query, orderBy, deleteField } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import { purchaseOrderConverter, materialConverter } from '@/lib/converters';
+import { purchaseOrderConverter, materialConverter, purchaseCategoryConverter } from '@/lib/converters';
 import {
   Table,
   TableBody,
@@ -22,16 +22,16 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { MoreHorizontal, CheckCircle, XCircle, Truck, RefreshCw } from 'lucide-react';
+import { MoreHorizontal, CheckCircle, XCircle, Truck, RefreshCw, Search, Calendar as CalendarIcon } from 'lucide-react';
 import type { PurchaseOrder } from '@/lib/types';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from "@/hooks/use-toast";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip"
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Calendar } from '@/components/ui/calendar';
+import { format, startOfDay, endOfDay } from 'date-fns';
+import type { DateRange } from 'react-day-picker';
+import { Input } from '@/components/ui/input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
 const CONVERSION_FACTORS: Record<string, number> = {
   'g_to_kg': 0.001,
@@ -49,15 +49,45 @@ function getConversionFactor(fromUnit: string, toUnit: string): number {
 export function PurchasingStatusTable() {
   const [purchaseOrdersSnapshot, poLoading] = useCollection(query(collection(db, 'purchaseOrders'), orderBy('createdAt', 'desc')).withConverter(purchaseOrderConverter));
   const [materialsSnapshot, materialsLoading] = useCollection(collection(db, 'materials').withConverter(materialConverter));
+  const [categoriesSnapshot, categoriesLoading] = useCollection(collection(db, 'purchaseCategories').withConverter(purchaseCategoryConverter));
+  
   const { toast } = useToast();
 
-  const purchaseOrders = React.useMemo(() => {
-    return purchaseOrdersSnapshot?.docs.map(doc => doc.data()) ?? [];
-  }, [purchaseOrdersSnapshot]);
+  const [searchTerm, setSearchTerm] = React.useState('');
+  const [dateRange, setDateRange] = React.useState<DateRange | undefined>();
+  const [categoryFilter, setCategoryFilter] = React.useState<string>('all');
+
+  const allMaterials = React.useMemo(() => materialsSnapshot?.docs.map(doc => doc.data()) ?? [], [materialsSnapshot]);
+  const allCategories = React.useMemo(() => categoriesSnapshot?.docs.map(doc => doc.data()) ?? [], [categoriesSnapshot]);
   
-  const allMaterials = React.useMemo(() => {
-    return materialsSnapshot?.docs.map(doc => doc.data()) ?? []
-  }, [materialsSnapshot]);
+  const getMaterialName = (id: string) => allMaterials.find(m => m.id === id)?.name || 'Unknown';
+
+  const purchaseOrders = React.useMemo(() => {
+    let baseOrders = purchaseOrdersSnapshot?.docs.map(doc => doc.data()) ?? [];
+    
+    if (dateRange?.from) {
+        const fromDate = startOfDay(dateRange.from);
+        const toDate = dateRange.to ? endOfDay(dateRange.to) : endOfDay(dateRange.from);
+        baseOrders = baseOrders.filter(order => {
+            const orderDate = new Date(order.createdAt);
+            return orderDate >= fromDate && orderDate <= toDate;
+        });
+    }
+
+    if (categoryFilter !== 'all') {
+        baseOrders = baseOrders.filter(order => order.category.id === categoryFilter);
+    }
+
+    if (searchTerm) {
+        baseOrders = baseOrders.filter(order => 
+            order.id.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            order.location.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            order.items.some(item => getMaterialName(item.materialId).toLowerCase().includes(searchTerm.toLowerCase()))
+        );
+    }
+    
+    return baseOrders;
+  }, [purchaseOrdersSnapshot, searchTerm, dateRange, categoryFilter, allMaterials]);
 
   const [formattedDates, setFormattedDates] = React.useState<Map<string, {createdAt: string, receivedAt?: string}>>(new Map());
   
@@ -65,7 +95,6 @@ export function PurchasingStatusTable() {
     if (purchaseOrders.length > 0) {
       const newFormattedDates = new Map();
       for (const order of purchaseOrders) {
-        // This effect runs only on the client, so `Intl` is safe here.
         const createdAt = new Intl.DateTimeFormat('en-US', {
           year: 'numeric', month: 'short', day: 'numeric'
         }).format(new Date(order.createdAt));
@@ -80,14 +109,10 @@ export function PurchasingStatusTable() {
     }
   }, [purchaseOrders]);
 
-  const getMaterialName = (id: string) => allMaterials.find(m => m.id === id)?.name || 'Unknown';
-
   const handleUpdateStatus = async (orderId: string, newStatus: PurchaseOrder['status']) => {
      try {
         await runTransaction(db, async (transaction) => {
             const orderRef = doc(db, 'purchaseOrders', orderId).withConverter(purchaseOrderConverter);
-            
-            // Step 1: Read all documents first
             const orderDoc = await transaction.get(orderRef);
             if (!orderDoc.exists()) throw new Error("Purchase order not found.");
             
@@ -103,8 +128,6 @@ export function PurchasingStatusTable() {
             
             const poUpdateData: any = { status: newStatus };
 
-            // Step 2: Perform logic and prepare writes
-            // When order is COMPLETED, add stock to materials
             if (newStatus === 'Completed' && oldStatus !== 'Completed') {
                 poUpdateData.receivedAt = new Date().toISOString();
                 for (let i = 0; i < materialDocs.length; i++) {
@@ -118,7 +141,6 @@ export function PurchasingStatusTable() {
                     transaction.update(materialDoc.ref, { stock: newStock });
                 }
             }
-            // When order is moved FROM completed, REMOVE stock
             else if (oldStatus === 'Completed' && newStatus !== 'Completed') {
                 poUpdateData.receivedAt = deleteField();
                  for (let i = 0; i < materialDocs.length; i++) {
@@ -134,7 +156,6 @@ export function PurchasingStatusTable() {
                 }
             }
             
-            // Step 3: Write all updates at the end
             transaction.update(orderRef, poUpdateData);
         });
         toast({ title: `Order status updated to ${newStatus}.`});
@@ -148,9 +169,16 @@ export function PurchasingStatusTable() {
     return items.reduce((total, item) => total + (item.price * item.quantity), 0);
   };
 
-  if (poLoading || materialsLoading) {
+  if (poLoading || materialsLoading || categoriesLoading) {
      return (
        <div className="space-y-4">
+        <div className="flex justify-between items-center gap-4">
+            <div className="flex gap-2">
+                <Skeleton className="h-10 w-64" />
+                <Skeleton className="h-10 w-48" />
+                <Skeleton className="h-10 w-40" />
+            </div>
+        </div>
         <div className="rounded-md border">
           <Table>
             <TableHeader>
@@ -184,7 +212,63 @@ export function PurchasingStatusTable() {
   }
 
   return (
-    <TooltipProvider>
+    <>
+    <div className="flex items-center mb-4 gap-2 flex-wrap">
+        <div className="relative w-full max-w-sm">
+            <Search className="absolute left-2.5 top-3 h-4 w-4 text-muted-foreground" />
+            <Input 
+                placeholder="Search orders..."
+                className="pl-8"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+            />
+        </div>
+        <Popover>
+            <PopoverTrigger asChild>
+            <Button
+                id="date"
+                variant={"outline"}
+                className="w-[260px] justify-start text-left font-normal"
+            >
+                <CalendarIcon className="mr-2 h-4 w-4" />
+                {dateRange?.from ? (
+                dateRange.to ? (
+                    <>
+                    {format(dateRange.from, "LLL dd, y")} -{" "}
+                    {format(dateRange.to, "LLL dd, y")}
+                    </>
+                ) : (
+                    format(dateRange.from, "LLL dd, y")
+                )
+                ) : (
+                <span>Pick a date range</span>
+                )}
+            </Button>
+            </PopoverTrigger>
+            <PopoverContent className="w-auto p-0" align="start">
+            <Calendar
+                initialFocus
+                mode="range"
+                defaultMonth={dateRange?.from}
+                selected={dateRange}
+                onSelect={setDateRange}
+                numberOfMonths={2}
+            />
+            </PopoverContent>
+        </Popover>
+        <Select value={categoryFilter} onValueChange={setCategoryFilter}>
+            <SelectTrigger className="w-[180px]">
+                <SelectValue placeholder="Filter by category" />
+            </SelectTrigger>
+            <SelectContent>
+                <SelectItem value="all">All Categories</SelectItem>
+                {allCategories.map(cat => (
+                    <SelectItem key={cat.id} value={cat.id}>{cat.name}</SelectItem>
+                ))}
+            </SelectContent>
+        </Select>
+        {(dateRange || categoryFilter !== 'all') && <Button variant="ghost" onClick={() => { setDateRange(undefined); setCategoryFilter('all'); }}>Clear Filters</Button>}
+    </div>
       <div className="rounded-md border">
         <Table>
           <TableHeader>
@@ -211,9 +295,9 @@ export function PurchasingStatusTable() {
                   {order.receivedAt ? (formattedDates.get(order.id)?.receivedAt || <Skeleton className="h-5 w-24" />) : 'N/A'}
                 </TableCell>
                 <TableCell>
-                    <div>
+                    <div className="space-y-1">
                         {order.items.map((i, index) => (
-                            <div key={index} className={index < order.items.length - 1 ? 'mb-1' : ''}>
+                            <div key={index}>
                                 <span>{i.quantity}{i.unit} x {getMaterialName(i.materialId)}</span>
                                 {i.note && <p className="text-muted-foreground italic text-xs pl-2">- {i.note}</p>}
                             </div>
@@ -277,6 +361,6 @@ export function PurchasingStatusTable() {
           </TableBody>
         </Table>
       </div>
-    </TooltipProvider>
+    </>
   );
 }

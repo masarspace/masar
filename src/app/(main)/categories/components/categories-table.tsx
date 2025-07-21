@@ -29,7 +29,7 @@ import {
   SheetFooter,
 } from '@/components/ui/sheet';
 import { Button } from '@/components/ui/button';
-import { MoreHorizontal, PlusCircle, Edit, Trash2 } from 'lucide-react';
+import { MoreHorizontal, PlusCircle, Edit, Trash2, Search } from 'lucide-react';
 import type { PurchaseCategory } from '@/lib/types';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -38,9 +38,20 @@ import { Textarea } from '@/components/ui/textarea';
 
 export function CategoriesTable() {
   const [snapshot, loading] = useCollection(collection(db, 'purchaseCategories').withConverter(purchaseCategoryConverter));
-  const categories = snapshot?.docs.map(doc => doc.data()) ?? [];
   const [isSheetOpen, setIsSheetOpen] = React.useState(false);
   const [selectedCategory, setSelectedCategory] = React.useState<PurchaseCategory | null>(null);
+  const [searchTerm, setSearchTerm] = React.useState('');
+
+  const categories = React.useMemo(() => {
+    const baseCategories = snapshot?.docs.map(doc => doc.data()) ?? [];
+    if (!searchTerm) {
+      return baseCategories;
+    }
+    return baseCategories.filter(category => 
+      category.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      category.description.toLowerCase().includes(searchTerm.toLowerCase())
+    );
+  }, [snapshot, searchTerm]);
 
   const handleAddClick = () => {
     setSelectedCategory(null);
@@ -78,8 +89,9 @@ export function CategoriesTable() {
   if (loading) {
     return (
       <div className="space-y-4">
-        <div className="flex justify-end">
-          <Skeleton className="h-10 w-36" />
+        <div className="flex justify-between items-center">
+            <Skeleton className="h-10 w-64" />
+            <Skeleton className="h-10 w-36" />
         </div>
         <div className="rounded-md border">
           <Table>
@@ -107,7 +119,16 @@ export function CategoriesTable() {
 
   return (
     <>
-      <div className="flex justify-end mb-4">
+      <div className="flex justify-between items-center mb-4 gap-4">
+        <div className="relative w-full max-w-sm">
+            <Search className="absolute left-2.5 top-3 h-4 w-4 text-muted-foreground" />
+            <Input 
+                placeholder="Search categories..."
+                className="pl-8"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+            />
+        </div>
         <Button onClick={handleAddClick}><PlusCircle className="mr-2 h-4 w-4" /> Add Category</Button>
       </div>
       <div className="rounded-md border">

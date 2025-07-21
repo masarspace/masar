@@ -31,7 +31,7 @@ import {
 } from '@/components/ui/sheet';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { MoreHorizontal, PlusCircle, Edit, Trash2, CheckCircle, XCircle } from 'lucide-react';
+import { MoreHorizontal, PlusCircle, Edit, Trash2, CheckCircle, XCircle, Search, Calendar as CalendarIcon } from 'lucide-react';
 import type { Order, OrderItem } from '@/lib/types';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -40,6 +40,10 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from "@/hooks/use-toast";
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Calendar } from '@/components/ui/calendar';
+import { format, startOfDay, endOfDay } from 'date-fns';
+import type { DateRange } from 'react-day-picker';
 
 export function OrdersTable() {
   const [ordersSnapshot, ordersLoading] = useCollection(collection(db, 'orders').withConverter(orderConverter));
@@ -47,9 +51,39 @@ export function OrdersTable() {
   const [materialsSnapshot, materialsLoading] = useCollection(collection(db, 'materials').withConverter(materialConverter));
   const { toast } = useToast();
 
+  const allDrinks = drinksSnapshot?.docs.map(doc => doc.data()) ?? [];
+  const allMaterials = materialsSnapshot?.docs.map(doc => doc.data()) ?? [];
+
+  const [isSheetOpen, setIsSheetOpen] = React.useState(false);
+  const [selectedOrder, setSelectedOrder] = React.useState<Order | null>(null);
+  const [orderItems, setOrderItems] = React.useState<OrderItem[]>([]);
+  const [currentStatus, setCurrentStatus] = React.useState<Order['status'] | undefined>();
+  const [searchTerm, setSearchTerm] = React.useState('');
+  const [dateRange, setDateRange] = React.useState<DateRange | undefined>();
+
+  const getDrinkName = (id: string) => allDrinks.find(d => d.id === id)?.name || 'Unknown';
+
   const orders = React.useMemo(() => {
-    return ordersSnapshot?.docs.map(doc => doc.data()).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()) ?? [];
-  }, [ordersSnapshot]);
+    let baseOrders = ordersSnapshot?.docs.map(doc => doc.data()).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()) ?? [];
+    
+    if (dateRange?.from) {
+        const fromDate = startOfDay(dateRange.from);
+        const toDate = dateRange.to ? endOfDay(dateRange.to) : endOfDay(dateRange.from);
+        baseOrders = baseOrders.filter(order => {
+            const orderDate = new Date(order.createdAt);
+            return orderDate >= fromDate && orderDate <= toDate;
+        });
+    }
+
+    if (searchTerm) {
+        baseOrders = baseOrders.filter(order => 
+            order.id.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            order.items.some(item => getDrinkName(item.drinkId).toLowerCase().includes(searchTerm.toLowerCase()))
+        );
+    }
+    
+    return baseOrders;
+  }, [ordersSnapshot, searchTerm, dateRange, allDrinks]);
 
   const [formattedDates, setFormattedDates] = React.useState<Map<string, string>>(new Map());
   
@@ -71,15 +105,6 @@ export function OrdersTable() {
     }
   }, [orders]);
   
-  const allDrinks = drinksSnapshot?.docs.map(doc => doc.data()) ?? [];
-  const allMaterials = materialsSnapshot?.docs.map(doc => doc.data()) ?? [];
-
-  const [isSheetOpen, setIsSheetOpen] = React.useState(false);
-  const [selectedOrder, setSelectedOrder] = React.useState<Order | null>(null);
-  const [orderItems, setOrderItems] = React.useState<OrderItem[]>([]);
-  const [currentStatus, setCurrentStatus] = React.useState<Order['status'] | undefined>();
-  
-
   React.useEffect(() => {
     if(selectedOrder) {
       setOrderItems(selectedOrder.items);
@@ -308,9 +333,6 @@ export function OrdersTable() {
     setOrderItems(orderItems.map(item => item.drinkId === drinkId ? { ...item, quantity } : item));
   };
 
-
-  const getDrinkName = (id: string) => allDrinks.find(d => d.id === id)?.name || 'Unknown';
-
   const getOrderTotal = (items: OrderItem[]) => {
     return items.reduce((total, item) => {
         const drink = allDrinks.find(d => d.id === item.drinkId);
@@ -321,8 +343,12 @@ export function OrdersTable() {
   if (ordersLoading || drinksLoading || materialsLoading) {
      return (
        <div className="space-y-4">
-        <div className="flex justify-end">
-          <Skeleton className="h-10 w-36" />
+        <div className="flex justify-between items-center gap-4">
+            <div className="flex gap-2">
+                <Skeleton className="h-10 w-64" />
+                <Skeleton className="h-10 w-48" />
+            </div>
+            <Skeleton className="h-10 w-36" />
         </div>
         <div className="rounded-md border">
           <Table>
@@ -356,7 +382,52 @@ export function OrdersTable() {
 
   return (
     <>
-      <div className="flex justify-end mb-4">
+      <div className="flex justify-between items-center mb-4 gap-4 flex-wrap">
+        <div className="flex gap-2 items-center flex-wrap">
+            <div className="relative w-full max-w-sm">
+                <Search className="absolute left-2.5 top-3 h-4 w-4 text-muted-foreground" />
+                <Input 
+                    placeholder="Search orders..."
+                    className="pl-8"
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                />
+            </div>
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button
+                  id="date"
+                  variant={"outline"}
+                  className="w-[260px] justify-start text-left font-normal"
+                >
+                  <CalendarIcon className="mr-2 h-4 w-4" />
+                  {dateRange?.from ? (
+                    dateRange.to ? (
+                      <>
+                        {format(dateRange.from, "LLL dd, y")} -{" "}
+                        {format(dateRange.to, "LLL dd, y")}
+                      </>
+                    ) : (
+                      format(dateRange.from, "LLL dd, y")
+                    )
+                  ) : (
+                    <span>Pick a date range</span>
+                  )}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-auto p-0" align="start">
+                <Calendar
+                  initialFocus
+                  mode="range"
+                  defaultMonth={dateRange?.from}
+                  selected={dateRange}
+                  onSelect={setDateRange}
+                  numberOfMonths={2}
+                />
+              </PopoverContent>
+            </Popover>
+            {dateRange && <Button variant="ghost" onClick={() => setDateRange(undefined)}>Clear</Button>}
+        </div>
         <Button onClick={handleAddClick}><PlusCircle className="mr-2 h-4 w-4" /> Create Order</Button>
       </div>
       <div className="rounded-md border">

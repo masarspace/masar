@@ -30,7 +30,7 @@ import {
   SheetClose,
 } from '@/components/ui/sheet';
 import { Button } from '@/components/ui/button';
-import { MoreHorizontal, PlusCircle, Edit, Trash2 } from 'lucide-react';
+import { MoreHorizontal, PlusCircle, Edit, Trash2, Search } from 'lucide-react';
 import type { Drink, DrinkRecipeItem, Material } from '@/lib/types';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -42,12 +42,21 @@ export function DrinksTable() {
   const [drinksSnapshot, drinksLoading] = useCollection(collection(db, 'drinks').withConverter(drinkConverter));
   const [materialsSnapshot, materialsLoading] = useCollection(collection(db, 'materials').withConverter(materialConverter));
 
-  const drinks = drinksSnapshot?.docs.map(doc => doc.data()) ?? [];
   const allMaterials = materialsSnapshot?.docs.map(doc => doc.data()) ?? [];
-
   const [isSheetOpen, setIsSheetOpen] = React.useState(false);
   const [selectedDrink, setSelectedDrink] = React.useState<Drink | null>(null);
   const [recipe, setRecipe] = React.useState<DrinkRecipeItem[]>([]);
+  const [searchTerm, setSearchTerm] = React.useState('');
+
+  const drinks = React.useMemo(() => {
+    const baseDrinks = drinksSnapshot?.docs.map(doc => doc.data()) ?? [];
+    if (!searchTerm) {
+      return baseDrinks;
+    }
+    return baseDrinks.filter(drink =>
+      drink.name.toLowerCase().includes(searchTerm.toLowerCase())
+    );
+  }, [drinksSnapshot, searchTerm]);
 
   React.useEffect(() => {
     if (selectedDrink) {
@@ -111,7 +120,8 @@ export function DrinksTable() {
   if (drinksLoading || materialsLoading) {
     return (
        <div className="space-y-4">
-        <div className="flex justify-end">
+        <div className="flex justify-between items-center">
+          <Skeleton className="h-10 w-64" />
           <Skeleton className="h-10 w-32" />
         </div>
         <div className="rounded-md border">
@@ -142,7 +152,16 @@ export function DrinksTable() {
 
   return (
     <>
-      <div className="flex justify-end mb-4">
+      <div className="flex justify-between items-center mb-4 gap-4">
+        <div className="relative w-full max-w-sm">
+            <Search className="absolute left-2.5 top-3 h-4 w-4 text-muted-foreground" />
+            <Input 
+                placeholder="Search drinks..."
+                className="pl-8"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+            />
+        </div>
         <Button onClick={handleAddClick}><PlusCircle className="mr-2 h-4 w-4" /> Add Drink</Button>
       </div>
       <div className="rounded-md border">

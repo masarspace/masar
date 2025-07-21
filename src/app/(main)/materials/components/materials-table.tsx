@@ -31,7 +31,7 @@ import {
 } from '@/components/ui/sheet';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { MoreHorizontal, PlusCircle, Edit, Trash2 } from 'lucide-react';
+import { MoreHorizontal, PlusCircle, Edit, Trash2, Search } from 'lucide-react';
 import type { Material } from '@/lib/types';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -40,9 +40,19 @@ import { Skeleton } from '@/components/ui/skeleton';
 
 export function MaterialsTable() {
   const [snapshot, loading] = useCollection(collection(db, 'materials').withConverter(materialConverter));
-  const materials = snapshot?.docs.map(doc => doc.data()) ?? [];
   const [isSheetOpen, setIsSheetOpen] = React.useState(false);
   const [selectedMaterial, setSelectedMaterial] = React.useState<Material | null>(null);
+  const [searchTerm, setSearchTerm] = React.useState('');
+
+  const materials = React.useMemo(() => {
+    const baseMaterials = snapshot?.docs.map(doc => doc.data()) ?? [];
+    if (!searchTerm) {
+        return baseMaterials;
+    }
+    return baseMaterials.filter(material => 
+        material.name.toLowerCase().includes(searchTerm.toLowerCase())
+    );
+  }, [snapshot, searchTerm]);
 
   const handleAddClick = () => {
     setSelectedMaterial(null);
@@ -82,8 +92,9 @@ export function MaterialsTable() {
   if (loading) {
     return (
       <div className="space-y-4">
-        <div className="flex justify-end">
-          <Skeleton className="h-10 w-36" />
+        <div className="flex justify-between items-center">
+            <Skeleton className="h-10 w-64" />
+            <Skeleton className="h-10 w-36" />
         </div>
         <div className="rounded-md border">
           <Table>
@@ -113,7 +124,16 @@ export function MaterialsTable() {
 
   return (
     <>
-      <div className="flex justify-end mb-4">
+      <div className="flex justify-between items-center mb-4 gap-4">
+        <div className="relative w-full max-w-sm">
+            <Search className="absolute left-2.5 top-3 h-4 w-4 text-muted-foreground" />
+            <Input 
+                placeholder="Search materials..."
+                className="pl-8"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+            />
+        </div>
         <Button onClick={handleAddClick}><PlusCircle className="mr-2 h-4 w-4" /> Add Material</Button>
       </div>
       <div className="rounded-md border">
