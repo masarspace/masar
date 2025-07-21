@@ -88,10 +88,13 @@ export const purchaseCategoryConverter: FirestoreDataConverter<PurchaseCategory>
 };
 
 export const purchaseOrderConverter: FirestoreDataConverter<PurchaseOrder> = {
-  toFirestore(purchaseOrder: Partial<PurchaseOrder>): DocumentData {
-    const { id, ...data } = purchaseOrder;
-     if (data.receivedAt === undefined) {
-      data.receivedAt = FieldValue.delete() as any;
+  toFirestore(purchaseOrder: Omit<PurchaseOrder, 'id'> | PurchaseOrder): DocumentData {
+    const { id, ...data } = purchaseOrder as PurchaseOrder;
+     if ('receivedAt' in data && data.receivedAt === undefined) {
+      // Create a shallow copy to avoid modifying the original object
+      const dataCopy: Partial<PurchaseOrder> = { ...data };
+      delete dataCopy.receivedAt;
+      return dataCopy;
     }
     return data;
   },
