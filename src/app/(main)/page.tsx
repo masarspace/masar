@@ -5,19 +5,7 @@ import {
   CardTitle,
   CardDescription,
 } from '@/components/ui/card';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
-import { Badge } from '@/components/ui/badge';
-import { materials, orders, drinks } from '@/lib/data';
-import type { Order, Drink } from '@/lib/types';
 import { OverviewChart } from './components/overview-chart';
-import { DollarSign, Package, ShoppingCart, AlertTriangle } from 'lucide-react';
 import { RecentOrders } from './components/recent-orders';
 import { DashboardStats } from './components/dashboard-stats';
 
@@ -35,7 +23,7 @@ export default function DashboardPage() {
       <DashboardStats />
 
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-7">
-        <Card className="col-span-4">
+        <Card className="col-span-full lg:col-span-4">
           <CardHeader>
             <CardTitle>Popular Drinks</CardTitle>
             <CardDescription>
@@ -46,7 +34,7 @@ export default function DashboardPage() {
             <OverviewChart />
           </CardContent>
         </Card>
-        <Card className="col-span-4 lg:col-span-3">
+        <Card className="col-span-full lg:col-span-3">
           <CardHeader>
             <CardTitle>Recent Orders</CardTitle>
             <CardDescription>
