@@ -90,7 +90,7 @@ export function MaterialsTable() {
             <TableHeader>
               <TableRow>
                 <TableHead>Name</TableHead>
-                <TableHead>Stock</TableHead>
+                <TableHead className="hidden md:table-cell">Stock</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead className="text-right">Actions</TableHead>
               </TableRow>
@@ -99,7 +99,7 @@ export function MaterialsTable() {
               {[...Array(5)].map((_, i) => (
                 <TableRow key={i}>
                   <TableCell><Skeleton className="h-5 w-32" /></TableCell>
-                  <TableCell><Skeleton className="h-5 w-24" /></TableCell>
+                  <TableCell className="hidden md:table-cell"><Skeleton className="h-5 w-24" /></TableCell>
                   <TableCell><Skeleton className="h-5 w-20" /></TableCell>
                   <TableCell className="text-right"><Skeleton className="h-8 w-8 ml-auto" /></TableCell>
                 </TableRow>
@@ -121,7 +121,7 @@ export function MaterialsTable() {
           <TableHeader>
             <TableRow>
               <TableHead>Name</TableHead>
-              <TableHead>Stock</TableHead>
+              <TableHead className="hidden md:table-cell">Stock</TableHead>
               <TableHead>Status</TableHead>
               <TableHead className="text-right">Actions</TableHead>
             </TableRow>
@@ -130,7 +130,7 @@ export function MaterialsTable() {
             {materials.map((material) => (
               <TableRow key={material.id}>
                 <TableCell className="font-medium">{material.name}</TableCell>
-                <TableCell>
+                <TableCell className="hidden md:table-cell">
                   {material.stock} {material.unit}
                 </TableCell>
                 <TableCell>
@@ -187,7 +187,7 @@ export function MaterialsTable() {
             </div>
             <div className="grid sm:grid-cols-4 items-center gap-2 sm:gap-4">
               <Label htmlFor="stock" className="sm:text-right">Stock</Label>
-              <Input id="stock" name="stock" type="number" defaultValue={selectedMaterial?.stock} className="sm:col-span-3" required/>
+              <Input id="stock" name="stock" type="number" step="any" min="0" defaultValue={selectedMaterial?.stock} className="sm:col-span-3" required/>
             </div>
             <div className="grid sm:grid-cols-4 items-center gap-2 sm:gap-4">
               <Label htmlFor="unit" className="sm:text-right">Unit</Label>
@@ -206,7 +206,7 @@ export function MaterialsTable() {
             </div>
              <div className="grid sm:grid-cols-4 items-center gap-2 sm:gap-4">
               <Label htmlFor="lowStockThreshold" className="sm:text-right whitespace-nowrap">Low Stock At</Label>
-              <Input id="lowStockThreshold" name="lowStockThreshold" type="number" defaultValue={selectedMaterial?.lowStockThreshold} className="sm:col-span-3" required/>
+              <Input id="lowStockThreshold" name="lowStockThreshold" type="number" step="any" min="0" defaultValue={selectedMaterial?.lowStockThreshold} className="sm:col-span-3" required/>
             </div>
           </div>
           <SheetFooter>
