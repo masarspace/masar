@@ -51,8 +51,8 @@ export function OrdersTable() {
   const [materialsSnapshot, materialsLoading] = useCollection(collection(db, 'materials').withConverter(materialConverter));
   const { toast } = useToast();
 
-  const allDrinks = drinksSnapshot?.docs.map(doc => doc.data()) ?? [];
-  const allMaterials = materialsSnapshot?.docs.map(doc => doc.data()) ?? [];
+  const allDrinks = React.useMemo(() => drinksSnapshot?.docs.map(doc => doc.data()) ?? [], [drinksSnapshot]);
+  const allMaterials = React.useMemo(() => materialsSnapshot?.docs.map(doc => doc.data()) ?? [], [materialsSnapshot]);
 
   const [isSheetOpen, setIsSheetOpen] = React.useState(false);
   const [selectedOrder, setSelectedOrder] = React.useState<Order | null>(null);
@@ -61,7 +61,7 @@ export function OrdersTable() {
   const [searchTerm, setSearchTerm] = React.useState('');
   const [dateRange, setDateRange] = React.useState<DateRange | undefined>();
 
-  const getDrinkName = (id: string) => allDrinks.find(d => d.id === id)?.name || 'Unknown';
+  const getDrinkName = React.useCallback((id: string) => allDrinks.find(d => d.id === id)?.name || 'Unknown', [allDrinks]);
 
   const orders = React.useMemo(() => {
     let baseOrders = ordersSnapshot?.docs.map(doc => doc.data()).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()) ?? [];
@@ -83,7 +83,7 @@ export function OrdersTable() {
     }
     
     return baseOrders;
-  }, [ordersSnapshot, searchTerm, dateRange, allDrinks]);
+  }, [ordersSnapshot, searchTerm, dateRange, getDrinkName]);
 
   const [formattedDates, setFormattedDates] = React.useState<Map<string, string>>(new Map());
   
