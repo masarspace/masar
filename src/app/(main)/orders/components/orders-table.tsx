@@ -3,7 +3,7 @@
 
 import * as React from 'react';
 import { useCollection } from 'react-firebase-hooks/firestore';
-import { collection, doc, writeBatch, runTransaction, updateDoc, deleteDoc } from 'firebase/firestore';
+import { collection, doc, runTransaction } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { orderConverter, drinkConverter, materialConverter } from '@/lib/converters';
 import {
@@ -32,7 +32,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { MoreHorizontal, PlusCircle, Edit, Trash2, CheckCircle, XCircle } from 'lucide-react';
-import type { Order, OrderItem, Drink, Material } from '@/lib/types';
+import type { Order, OrderItem } from '@/lib/types';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
@@ -45,13 +45,31 @@ export function OrdersTable() {
   const [ordersSnapshot, ordersLoading] = useCollection(collection(db, 'orders').withConverter(orderConverter));
   const [drinksSnapshot, drinksLoading] = useCollection(collection(db, 'drinks').withConverter(drinkConverter));
   const [materialsSnapshot, materialsLoading] = useCollection(collection(db, 'materials').withConverter(materialConverter));
-  const [formattedDates, setFormattedDates] = React.useState<Map<string, string>>(new Map());
-
   const { toast } = useToast();
 
   const orders = React.useMemo(() => {
     return ordersSnapshot?.docs.map(doc => doc.data()).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()) ?? [];
   }, [ordersSnapshot]);
+
+  const [formattedDates, setFormattedDates] = React.useState<Map<string, string>>(new Map());
+  
+  React.useEffect(() => {
+    if (orders.length > 0) {
+      const newFormattedDates = new Map<string, string>();
+      for (const order of orders) {
+        // This effect runs only on the client, so `Intl` is safe here.
+         newFormattedDates.set(order.id, new Intl.DateTimeFormat('en-US', {
+          year: 'numeric',
+          month: 'short',
+          day: 'numeric',
+          hour: 'numeric',
+          minute: '2-digit',
+          hour12: true,
+        }).format(new Date(order.createdAt)));
+      }
+      setFormattedDates(newFormattedDates);
+    }
+  }, [orders]);
   
   const allDrinks = drinksSnapshot?.docs.map(doc => doc.data()) ?? [];
   const allMaterials = materialsSnapshot?.docs.map(doc => doc.data()) ?? [];
@@ -61,30 +79,6 @@ export function OrdersTable() {
   const [orderItems, setOrderItems] = React.useState<OrderItem[]>([]);
   const [currentStatus, setCurrentStatus] = React.useState<Order['status'] | undefined>();
   
-  React.useEffect(() => {
-    if (orders.length > 0) {
-      const newFormattedDates = new Map<string, string>();
-      for (const order of orders) {
-        try {
-          // This formatting needs to be consistent and preferably rely on data available on both server and client
-          // Using a simple, non-locale specific format first, then enhancing on the client.
-           newFormattedDates.set(order.id, new Intl.DateTimeFormat('en-US', {
-            year: 'numeric',
-            month: 'short',
-            day: 'numeric',
-            hour: 'numeric',
-            minute: '2-digit',
-            hour12: true,
-          }).format(new Date(order.createdAt)));
-        } catch (e) {
-          // Fallback for environments where Intl might fail or be inconsistent
-          newFormattedDates.set(order.id, new Date(order.createdAt).toLocaleDateString()); 
-        }
-      }
-      setFormattedDates(newFormattedDates);
-    }
-  }, [orders]);
-
 
   React.useEffect(() => {
     if(selectedOrder) {
@@ -108,7 +102,7 @@ export function OrdersTable() {
     setIsSheetOpen(true);
   };
 
-  const handleDeleteClick = async (order: Order) => {
+    const handleDeleteClick = async (order: Order) => {
     if (!order.id) return;
     
     try {
@@ -148,62 +142,66 @@ export function OrdersTable() {
   };
 
   const handleUpdateStatus = async (order: Order, newStatus: Order['status']) => {
-    if (order.status === newStatus || order.status === 'Cancelled') return;
+    if (order.status === newStatus) return;
 
     try {
-      await runTransaction(db, async (transaction) => {
-        const orderRef = doc(db, 'orders', order.id);
-        
-        if (newStatus === 'Completed' && order.status !== 'Completed') {
-          // Deduct stock
-          const stockToDeduct = new Map<string, number>();
-          for (const item of order.items) {
-            const drink = allDrinks.find(d => d.id === item.drinkId);
-            if (drink) {
-              for (const recipeItem of drink.recipe) {
-                stockToDeduct.set(recipeItem.materialId, (stockToDeduct.get(recipeItem.materialId) || 0) + (recipeItem.quantity * item.quantity));
-              }
-            }
-          }
+        await runTransaction(db, async (transaction) => {
+            const orderRef = doc(db, 'orders', order.id);
+            const oldStatus = order.status;
 
-          const materialRefs = Array.from(stockToDeduct.keys()).map(id => doc(db, 'materials', id).withConverter(materialConverter));
-          const materialDocs = await Promise.all(materialRefs.map(ref => transaction.get(ref)));
-          
-          for (const materialDoc of materialDocs) {
-            if (!materialDoc.exists()) throw new Error(`Material with ID ${materialDoc.id} not found.`);
-            const currentStock = materialDoc.data().stock;
-            const requiredStock = stockToDeduct.get(materialDoc.id) || 0;
-            if (currentStock < requiredStock) {
-              throw new Error(`Insufficient stock for ${materialDoc.data().name}. Required: ${requiredStock}, available: ${currentStock}`);
-            }
-            transaction.update(materialDoc.ref, { stock: currentStock - requiredStock });
-          }
-        } else if (newStatus !== 'Completed' && order.status === 'Completed') {
-          // Return stock
-          const stockToReturn = new Map<string, number>();
-           for (const item of order.items) {
-            const drink = allDrinks.find(d => d.id === item.drinkId);
-            if (drink) {
-              for (const recipeItem of drink.recipe) {
-                stockToReturn.set(recipeItem.materialId, (stockToReturn.get(recipeItem.materialId) || 0) + (recipeItem.quantity * item.quantity));
-              }
-            }
-          }
-           const materialRefs = Array.from(stockToReturn.keys()).map(id => doc(db, 'materials', id).withConverter(materialConverter));
-           const materialDocs = await Promise.all(materialRefs.map(ref => transaction.get(ref)));
-           for(const materialDoc of materialDocs) {
-             if (materialDoc.exists()) {
-               const stockToAdd = stockToReturn.get(materialDoc.id) || 0;
-               transaction.update(materialDoc.ref, { stock: materialDoc.data().stock + stockToAdd });
-             }
-           }
-        }
+            // Only deduct stock when moving TO completed
+            if (newStatus === 'Completed' && oldStatus !== 'Completed') {
+                const stockToDeduct = new Map<string, number>();
+                for (const item of order.items) {
+                    const drink = allDrinks.find(d => d.id === item.drinkId);
+                    if (drink) {
+                        for (const recipeItem of drink.recipe) {
+                            stockToDeduct.set(recipeItem.materialId, (stockToDeduct.get(recipeItem.materialId) || 0) + (recipeItem.quantity * item.quantity));
+                        }
+                    }
+                }
+                
+                const materialRefs = Array.from(stockToDeduct.keys()).map(id => doc(db, 'materials', id).withConverter(materialConverter));
+                const materialDocs = await Promise.all(materialRefs.map(ref => transaction.get(ref)));
 
-        transaction.update(orderRef, { status: newStatus });
-      });
-      toast({ title: `Order marked as ${newStatus}.` });
+                for (const materialDoc of materialDocs) {
+                    if (!materialDoc.exists()) throw new Error(`Material with ID ${materialDoc.id} not found.`);
+                    const currentStock = materialDoc.data().stock;
+                    const requiredStock = stockToDeduct.get(materialDoc.id) || 0;
+                    if (currentStock < requiredStock) {
+                        throw new Error(`Insufficient stock for ${materialDoc.data().name}.`);
+                    }
+                    transaction.update(materialDoc.ref, { stock: currentStock - requiredStock });
+                }
+            } 
+            // Only return stock when moving FROM completed
+            else if (oldStatus === 'Completed' && newStatus !== 'Completed') {
+                const stockToReturn = new Map<string, number>();
+                for (const item of order.items) {
+                    const drink = allDrinks.find(d => d.id === item.drinkId);
+                    if (drink) {
+                        for (const recipeItem of drink.recipe) {
+                            stockToReturn.set(recipeItem.materialId, (stockToReturn.get(recipeItem.materialId) || 0) + (recipeItem.quantity * item.quantity));
+                        }
+                    }
+                }
+                
+                const materialRefs = Array.from(stockToReturn.keys()).map(id => doc(db, 'materials', id).withConverter(materialConverter));
+                const materialDocs = await Promise.all(materialRefs.map(ref => transaction.get(ref)));
+
+                for (const materialDoc of materialDocs) {
+                    if (materialDoc.exists()) {
+                        const stockToAdd = stockToReturn.get(materialDoc.id) || 0;
+                        transaction.update(materialDoc.ref, { stock: materialDoc.data().stock + stockToAdd });
+                    }
+                }
+            }
+
+            transaction.update(orderRef, { status: newStatus });
+        });
+        toast({ title: `Order marked as ${newStatus}.` });
     } catch (error: any) {
-      toast({ variant: "destructive", title: "Error updating status", description: error.message });
+        toast({ variant: "destructive", title: "Error updating status", description: error.message });
     }
   };
 
@@ -234,7 +232,7 @@ export function OrdersTable() {
                 const stockChanges = new Map<string, number>(); // positive to add stock, negative to remove
 
                 // Step 1: Calculate stock changes based on status transitions and item changes.
-                // Case 1: Order was completed, and might not be anymore OR its items changed.
+                // Case 1: Order was completed, now needs stock returned
                 if (oldStatus === 'Completed') {
                     for(const item of oldItems) {
                         const drink = allDrinks.find(d => d.id === item.drinkId);
@@ -246,7 +244,7 @@ export function OrdersTable() {
                     }
                 }
 
-                // Case 2: Order is now completed, and it wasn't before OR its items changed.
+                // Case 2: Order is now completed, needs stock deducted
                 if (newStatus === 'Completed') {
                      for(const item of itemsToSave) {
                         const drink = allDrinks.find(d => d.id === item.drinkId);
@@ -260,11 +258,9 @@ export function OrdersTable() {
 
                 const materialIds = Array.from(stockChanges.keys());
                 if (materialIds.length > 0) {
-                    // READ phase
                     const materialRefs = materialIds.map(id => doc(db, 'materials', id).withConverter(materialConverter));
                     const materialDocs = await Promise.all(materialRefs.map(ref => transaction.get(ref)));
                     
-                    // VALIDATION and WRITE phase
                     for(const materialDoc of materialDocs) {
                          if (!materialDoc.exists()) throw new Error(`Material with ID ${materialDoc.id} not found.`);
                          const change = stockChanges.get(materialDoc.id) || 0;
@@ -283,6 +279,7 @@ export function OrdersTable() {
             const newOrderRef = doc(collection(db, 'orders'));
             await runTransaction(db, async (transaction) => {
                  transaction.set(newOrderRef.withConverter(orderConverter), {
+                    id: newOrderRef.id,
                     status: 'Pending', // New orders are always pending
                     createdAt: new Date().toISOString(),
                     items: itemsToSave,
@@ -298,6 +295,19 @@ export function OrdersTable() {
     setIsSheetOpen(false);
     setSelectedOrder(null);
   }
+
+  const handleItemChange = (drinkId: string, checked: boolean | 'indeterminate') => {
+    if (checked) {
+      setOrderItems([...orderItems, { drinkId, quantity: 1 }]);
+    } else {
+      setOrderItems(orderItems.filter(item => item.drinkId !== drinkId));
+    }
+  };
+
+  const handleQuantityChange = (drinkId: string, quantity: number) => {
+    setOrderItems(orderItems.map(item => item.drinkId === drinkId ? { ...item, quantity } : item));
+  };
+
 
   const getDrinkName = (id: string) => allDrinks.find(d => d.id === id)?.name || 'Unknown';
 
@@ -318,10 +328,10 @@ export function OrdersTable() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>Order ID</TableHead>
+                <TableHead className="hidden sm:table-cell">Order ID</TableHead>
                 <TableHead>Date</TableHead>
                 <TableHead>Items</TableHead>
-                <TableHead>Total</TableHead>
+                <TableHead className="hidden md:table-cell">Total</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead className="text-right">Actions</TableHead>
               </TableRow>
@@ -329,10 +339,10 @@ export function OrdersTable() {
             <TableBody>
               {[...Array(5)].map((_, i) => (
                 <TableRow key={i}>
-                  <TableCell><Skeleton className="h-5 w-24" /></TableCell>
+                  <TableCell className="hidden sm:table-cell"><Skeleton className="h-5 w-24" /></TableCell>
                   <TableCell><Skeleton className="h-5 w-36" /></TableCell>
                   <TableCell><Skeleton className="h-5 w-48" /></TableCell>
-                  <TableCell><Skeleton className="h-5 w-16" /></TableCell>
+                  <TableCell className="hidden md:table-cell"><Skeleton className="h-5 w-16" /></TableCell>
                   <TableCell><Skeleton className="h-6 w-20 rounded-full" /></TableCell>
                   <TableCell className="text-right"><Skeleton className="h-8 w-8 ml-auto" /></TableCell>
                 </TableRow>
@@ -353,10 +363,10 @@ export function OrdersTable() {
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Order ID</TableHead>
+              <TableHead className="hidden sm:table-cell">Order ID</TableHead>
               <TableHead>Date</TableHead>
               <TableHead>Items</TableHead>
-              <TableHead>Total</TableHead>
+              <TableHead className="hidden md:table-cell">Total</TableHead>
               <TableHead>Status</TableHead>
               <TableHead className="text-right">Actions</TableHead>
             </TableRow>
@@ -364,12 +374,12 @@ export function OrdersTable() {
           <TableBody>
             {orders.map((order) => (
               <TableRow key={order.id}>
-                <TableCell className="font-mono text-xs">{order.id}</TableCell>
+                <TableCell className="hidden sm:table-cell font-mono text-xs">{order.id}</TableCell>
                 <TableCell>{formattedDates.get(order.id) || <Skeleton className="h-5 w-36" />}</TableCell>
                 <TableCell>
                   {order.items.map(i => `${i.quantity}x ${getDrinkName(i.drinkId)}`).join(', ')}
                 </TableCell>
-                <TableCell>${getOrderTotal(order.items).toFixed(2)}</TableCell>
+                <TableCell className="hidden md:table-cell">${getOrderTotal(order.items).toFixed(2)}</TableCell>
                 <TableCell>
                   <Badge variant={order.status === 'Completed' ? 'default' : order.status === 'Pending' ? 'secondary' : 'destructive'}>
                     {order.status}
@@ -396,7 +406,7 @@ export function OrdersTable() {
                             <DropdownMenuSeparator />
                         </>
                        )}
-                       <DropdownMenuItem onClick={() => handleEditClick(order)}>
+                       <DropdownMenuItem onClick={() => handleEditClick(order)} disabled={order.status === 'Cancelled'}>
                         <Edit className="mr-2 h-4 w-4" /> Edit
                       </DropdownMenuItem>
                       <DropdownMenuItem onClick={() => handleDeleteClick(order)} className="text-destructive">
@@ -421,10 +431,10 @@ export function OrdersTable() {
             </SheetHeader>
             <div className="grid gap-4 py-4">
               {selectedOrder && (
-                 <div className="grid grid-cols-4 items-center gap-4">
-                    <Label htmlFor="status" className="text-right">Status</Label>
-                    <Select name="status" value={currentStatus} onValueChange={(value) => setCurrentStatus(value as Order['status'])} >
-                        <SelectTrigger className="col-span-3">
+                 <div className="grid sm:grid-cols-4 items-center gap-2 sm:gap-4">
+                    <Label htmlFor="status" className="sm:text-right">Status</Label>
+                    <Select name="status" value={currentStatus} onValueChange={(value) => setCurrentStatus(value as Order['status'])} disabled={currentStatus === 'Cancelled'}>
+                        <SelectTrigger className="sm:col-span-3">
                         <SelectValue placeholder="Set status" />
                         </SelectTrigger>
                         <SelectContent>
@@ -470,7 +480,7 @@ export function OrdersTable() {
               </div>
             </div>
             <SheetFooter>
-              <Button type="submit">Save Order</Button>
+              <Button type="submit" disabled={currentStatus === 'Cancelled'}>Save Order</Button>
             </SheetFooter>
           </form>
         </SheetContent>

@@ -1,3 +1,4 @@
+
 "use client"
 
 import { useCollection } from 'react-firebase-hooks/firestore';
@@ -33,7 +34,7 @@ export function RecentOrders() {
              <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Order ID</TableHead>
+                  <TableHead className="hidden sm:table-cell">Order ID</TableHead>
                   <TableHead>Items</TableHead>
                   <TableHead className="text-right">Status</TableHead>
                 </TableRow>
@@ -41,7 +42,7 @@ export function RecentOrders() {
               <TableBody>
                 {[...Array(5)].map((_, i) => (
                     <TableRow key={i}>
-                        <TableCell><Skeleton className="h-5 w-24" /></TableCell>
+                        <TableCell className="hidden sm:table-cell"><Skeleton className="h-5 w-24" /></TableCell>
                         <TableCell><Skeleton className="h-5 w-36" /></TableCell>
                         <TableCell className="text-right"><Skeleton className="h-6 w-20 rounded-full" /></TableCell>
                     </TableRow>
@@ -55,7 +56,7 @@ export function RecentOrders() {
     <Table>
       <TableHeader>
         <TableRow>
-          <TableHead>Order ID</TableHead>
+          <TableHead className="hidden sm:table-cell">Order ID</TableHead>
           <TableHead>Items</TableHead>
           <TableHead className="text-right">Status</TableHead>
         </TableRow>
@@ -63,7 +64,7 @@ export function RecentOrders() {
       <TableBody>
         {recentOrders.map((order) => (
           <TableRow key={order.id}>
-            <TableCell className="font-mono text-xs">{order.id}</TableCell>
+            <TableCell className="hidden sm:table-cell font-mono text-xs">{order.id}</TableCell>
             <TableCell>
               {order.items
                 .map((i) => `${i.quantity}x ${getDrinkName(i.drinkId)}`)

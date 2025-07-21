@@ -1,3 +1,4 @@
+
 "use client";
 
 import * as React from 'react';
@@ -135,12 +136,14 @@ export function MaterialsTable() {
                 <TableCell>
                   <Badge
                     variant={
+                      material.stock === 0 ? 'destructive' :
                       material.stock < material.lowStockThreshold
-                        ? 'destructive'
+                        ? 'secondary'
                         : 'default'
                     }
                   >
-                    {material.stock < material.lowStockThreshold
+                    {material.stock === 0 ? 'Out of Stock' :
+                     material.stock < material.lowStockThreshold
                       ? 'Low Stock'
                       : 'In Stock'}
                   </Badge>
@@ -178,18 +181,18 @@ export function MaterialsTable() {
             </SheetDescription>
           </SheetHeader>
           <div className="grid gap-4 py-4">
-            <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="name" className="text-right">Name</Label>
-              <Input id="name" name="name" defaultValue={selectedMaterial?.name} className="col-span-3" required/>
+            <div className="grid sm:grid-cols-4 items-center gap-2 sm:gap-4">
+              <Label htmlFor="name" className="sm:text-right">Name</Label>
+              <Input id="name" name="name" defaultValue={selectedMaterial?.name} className="sm:col-span-3" required/>
             </div>
-            <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="stock" className="text-right">Stock</Label>
-              <Input id="stock" name="stock" type="number" defaultValue={selectedMaterial?.stock} className="col-span-3" required/>
+            <div className="grid sm:grid-cols-4 items-center gap-2 sm:gap-4">
+              <Label htmlFor="stock" className="sm:text-right">Stock</Label>
+              <Input id="stock" name="stock" type="number" defaultValue={selectedMaterial?.stock} className="sm:col-span-3" required/>
             </div>
-            <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="unit" className="text-right">Unit</Label>
+            <div className="grid sm:grid-cols-4 items-center gap-2 sm:gap-4">
+              <Label htmlFor="unit" className="sm:text-right">Unit</Label>
                <Select name="unit" defaultValue={selectedMaterial?.unit} required>
-                <SelectTrigger className="col-span-3">
+                <SelectTrigger className="sm:col-span-3">
                   <SelectValue placeholder="Select a unit" />
                 </SelectTrigger>
                 <SelectContent>
@@ -201,9 +204,9 @@ export function MaterialsTable() {
                 </SelectContent>
               </Select>
             </div>
-             <div className="grid grid-cols-4 items-center gap-4">
-              <Label htmlFor="lowStockThreshold" className="text-right whitespace-nowrap">Low Stock At</Label>
-              <Input id="lowStockThreshold" name="lowStockThreshold" type="number" defaultValue={selectedMaterial?.lowStockThreshold} className="col-span-3" required/>
+             <div className="grid sm:grid-cols-4 items-center gap-2 sm:gap-4">
+              <Label htmlFor="lowStockThreshold" className="sm:text-right whitespace-nowrap">Low Stock At</Label>
+              <Input id="lowStockThreshold" name="lowStockThreshold" type="number" defaultValue={selectedMaterial?.lowStockThreshold} className="sm:col-span-3" required/>
             </div>
           </div>
           <SheetFooter>
