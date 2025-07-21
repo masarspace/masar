@@ -4,6 +4,7 @@ import {
   type QueryDocumentSnapshot,
   type SnapshotOptions,
   FieldValue,
+  deleteField,
 } from 'firebase/firestore';
 import type { Material, Drink, Order, PurchaseCategory, PurchaseOrder } from './types';
 
@@ -89,13 +90,17 @@ export const purchaseCategoryConverter: FirestoreDataConverter<PurchaseCategory>
 
 export const purchaseOrderConverter: FirestoreDataConverter<PurchaseOrder> = {
   toFirestore(purchaseOrder: Omit<PurchaseOrder, 'id'> | PurchaseOrder): DocumentData {
+    // We don't want to write the id field to the document
     const { id, ...data } = purchaseOrder as PurchaseOrder;
-     if ('receivedAt' in data && data.receivedAt === undefined) {
-      // Create a shallow copy to avoid modifying the original object
-      const dataCopy: Partial<PurchaseOrder> = { ...data };
+
+    // Handle the case where receivedAt is explicitly set to undefined,
+    // which happens when we use deleteField().
+    if ('receivedAt' in data && data.receivedAt === undefined) {
+      const dataCopy = { ...data };
       delete dataCopy.receivedAt;
       return dataCopy;
     }
+    
     return data;
   },
   fromFirestore(

@@ -3,7 +3,7 @@
 
 import * as React from 'react';
 import { useCollection } from 'react-firebase-hooks/firestore';
-import { collection, doc, runTransaction, query, orderBy } from 'firebase/firestore';
+import { collection, doc, runTransaction, query, orderBy, deleteField } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { purchaseOrderConverter, materialConverter } from '@/lib/converters';
 import {
@@ -76,7 +76,7 @@ export function PurchasingStatusTable() {
             // Do nothing if status is not changing
             if (oldStatus === newStatus) return;
             
-            let updateData: Partial<PurchaseOrder> = { status: newStatus };
+            let updateData: any = { status: newStatus };
 
             // When order is completed, add stock to materials
             if (newStatus === 'Completed' && oldStatus !== 'Completed') {
@@ -93,7 +93,7 @@ export function PurchasingStatusTable() {
 
             // When order is moved FROM completed back to something else, REMOVE stock
             if (oldStatus === 'Completed' && newStatus !== 'Completed') {
-                updateData.receivedAt = undefined; // Use undefined to remove field
+                updateData.receivedAt = deleteField();
                 for (const item of orderData.items) {
                     const materialRef = doc(db, 'materials', item.materialId).withConverter(materialConverter);
                     const materialDoc = await transaction.get(materialRef);
@@ -105,7 +105,6 @@ export function PurchasingStatusTable() {
                 }
             }
             
-            // Use specific fields for update to avoid overwriting unrelated data
             transaction.update(orderRef, updateData);
         });
         toast({ title: `Order status updated to ${newStatus}.`});
