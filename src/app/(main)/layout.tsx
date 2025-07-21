@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import {
   SidebarProvider,
   Sidebar,
@@ -40,42 +41,54 @@ export default function MainLayout({
             <SidebarMenu>
               <SidebarMenuItem>
                 <SidebarMenuButton
+                  asChild
                   href="/"
                   isActive={pathname === "/"}
                   tooltip="Dashboard"
                 >
-                  <LayoutDashboard />
-                  <span>Dashboard</span>
+                  <Link href="/">
+                    <LayoutDashboard />
+                    <span>Dashboard</span>
+                  </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>
               <SidebarMenuItem>
                 <SidebarMenuButton
+                  asChild
                   href="/materials"
                   isActive={pathname.startsWith("/materials")}
                   tooltip="Materials"
                 >
-                  <Package />
-                  <span>Materials</span>
+                  <Link href="/materials">
+                    <Package />
+                    <span>Materials</span>
+                  </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>
               <SidebarMenuItem>
                 <SidebarMenuButton
+                  asChild
                   href="/drinks"
                   isActive={pathname.startsWith("/drinks")}
                   tooltip="Drinks"
                 >
-                  <GlassWater />
-                  <span>Drinks</span>
+                   <Link href="/drinks">
+                    <GlassWater />
+                    <span>Drinks</span>
+                  </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>
               <SidebarMenuItem>
                 <SidebarMenuButton
+                  asChild
                   href="/orders"
                   isActive={pathname.startsWith("/orders")}
                   tooltip="Orders"
                 >
-                  <ShoppingCart />
-                  <span>Orders</span>
+                  <Link href="/orders">
+                    <ShoppingCart />
+                    <span>Orders</span>
+                  </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>
             </SidebarMenu>
