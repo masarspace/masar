@@ -17,6 +17,14 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { useToast } from "@/hooks/use-toast";
 import { useRouter } from 'next/navigation';
 
+const unitCompatibility: Record<Material['unit'], Material['unit'][]> = {
+    'kg': ['kg', 'g'],
+    'g': ['kg', 'g'],
+    'l': ['l', 'ml'],
+    'ml': ['l', 'ml'],
+    'piece': ['piece'],
+};
+
 export function NewPurchaseOrderForm() {
   const [materialsSnapshot, materialsLoading] = useCollection(collection(db, 'materials').withConverter(materialConverter));
   const [categoriesSnapshot, categoriesLoading] = useCollection(collection(db, 'purchaseCategories').withConverter(purchaseCategoryConverter));
@@ -119,6 +127,7 @@ export function NewPurchaseOrderForm() {
                 <div className="p-4 space-y-4">
                 {allMaterials.map(material => {
                     const orderItem = orderItems.find(item => item.materialId === material.id);
+                    const compatibleUnits = unitCompatibility[material.unit] || [material.unit];
                     return (
                     <div key={material.id} className="flex flex-col sm:flex-row items-start sm:items-center gap-2 sm:gap-4 p-2 rounded-md border">
                         <div className="flex items-center gap-2 flex-1">
@@ -142,7 +151,7 @@ export function NewPurchaseOrderForm() {
                                     required
                                 />
                                 <Select 
-                                    defaultValue={orderItem.unit} 
+                                    value={orderItem.unit} 
                                     onValueChange={(value) => handleFieldChange(material.id, 'unit', value)}
                                     required
                                 >
@@ -150,11 +159,9 @@ export function NewPurchaseOrderForm() {
                                         <SelectValue placeholder="Unit" />
                                     </SelectTrigger>
                                     <SelectContent>
-                                        <SelectItem value="kg">kg</SelectItem>
-                                        <SelectItem value="g">g</SelectItem>
-                                        <SelectItem value="l">l</SelectItem>
-                                        <SelectItem value="ml">ml</SelectItem>
-                                        <SelectItem value="piece">piece</SelectItem>
+                                        {compatibleUnits.map(unit => (
+                                            <SelectItem key={unit} value={unit}>{unit}</SelectItem>
+                                        ))}
                                     </SelectContent>
                                 </Select>
                                 <Input
