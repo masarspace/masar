@@ -86,25 +86,33 @@ export function OrdersTable() {
   const handleDeleteClick = async (order: Order) => {
     if(!order.id) return;
     
-    // If order is pending, return stock before deleting
-    if(order.status === 'Pending') {
-        const batch = writeBatch(db);
-        for (const item of order.items) {
+    // If order is not cancelled, return stock before deleting
+    if(order.status === 'Pending' || order.status === 'Completed') {
+      try {
+        await runTransaction(db, async (transaction) => {
+          for (const item of order.items) {
             const drink = allDrinks.find(d => d.id === item.drinkId);
             if (drink) {
-                for (const recipeItem of drink.recipe) {
-                    const material = allMaterials.find(m => m.id === recipeItem.materialId);
-                    if(material) {
-                        const materialRef = doc(db, 'materials', material.id);
-                        const stockToReturn = recipeItem.quantity * item.quantity;
-                        batch.update(materialRef, { stock: material.stock + stockToReturn });
-                    }
-                }
+              for (const recipeItem of drink.recipe) {
+                const materialRef = doc(db, 'materials', recipeItem.materialId).withConverter(materialConverter);
+                const materialDoc = await transaction.get(materialRef);
+                if (!materialDoc.exists()) throw new Error("Material not found");
+                const stockToReturn = recipeItem.quantity * item.quantity;
+                transaction.update(materialRef, { stock: materialDoc.data().stock + stockToReturn });
+              }
             }
-        }
-        await batch.commit();
+          }
+          const orderRef = doc(db, 'orders', order.id);
+          transaction.delete(orderRef);
+        });
+        toast({ title: "Order deleted and stock restored."});
+      } catch (error: any) {
+        toast({ variant: "destructive", title: "Error deleting order", description: error.message });
+      }
+    } else { // Order is already cancelled, just delete it
+      await deleteDoc(doc(db, 'orders', order.id));
+      toast({ title: "Order deleted."});
     }
-    await deleteDoc(doc(db, 'orders', order.id));
   };
 
   const handleItemChange = (drinkId: string, checked: boolean | 'indeterminate') => {
@@ -158,8 +166,8 @@ export function OrdersTable() {
 
                 // Check for sufficient stock and update
                 for (const [materialId, change] of stockChanges.entries()) {
-                    const materialRef = doc(db, 'materials', materialId);
-                    const materialDoc = await transaction.get(materialRef.withConverter(materialConverter));
+                    const materialRef = doc(db, 'materials', materialId).withConverter(materialConverter);
+                    const materialDoc = await transaction.get(materialRef);
                     if (!materialDoc.exists()) throw new Error(`Material with ID ${materialId} not found.`);
                     
                     const newStock = materialDoc.data().stock + change;
@@ -181,38 +189,31 @@ export function OrdersTable() {
         // Creating a new order
         try {
             await runTransaction(db, async (transaction) => {
-                const materialDocs = new Map<string, Material>();
-                 // Pre-fetch all materials to check stock
+                const materialStockDeltas = new Map<string, number>();
+
+                // Calculate total required stock for each material
                 for (const item of itemsToSave) {
                     const drink = allDrinks.find(d => d.id === item.drinkId);
                     if (drink) {
                         for (const recipeItem of drink.recipe) {
-                            if (!materialDocs.has(recipeItem.materialId)) {
-                                const materialRef = doc(db, 'materials', recipeItem.materialId);
-                                const materialDoc = await transaction.get(materialRef.withConverter(materialConverter));
-                                if (!materialDoc.exists()) throw new Error(`Material with ID ${recipeItem.materialId} not found.`);
-                                materialDocs.set(recipeItem.materialId, materialDoc.data());
-                            }
+                            const currentDelta = materialStockDeltas.get(recipeItem.materialId) || 0;
+                            materialStockDeltas.set(recipeItem.materialId, currentDelta + (recipeItem.quantity * item.quantity));
                         }
                     }
                 }
-
+                
                 // Check stock and apply updates
-                for (const item of itemsToSave) {
-                    const drink = allDrinks.find(d => d.id === item.drinkId);
-                    if (drink) {
-                        for (const recipeItem of drink.recipe) {
-                            const material = materialDocs.get(recipeItem.materialId)!;
-                            const requiredStock = recipeItem.quantity * item.quantity;
-                            if (material.stock < requiredStock) {
-                                throw new Error(`Insufficient stock for ${material.name}. Required: ${requiredStock}, Available: ${material.stock}`);
-                            }
-                            const materialRef = doc(db, 'materials', recipeItem.materialId);
-                            transaction.update(materialRef, { stock: material.stock - requiredStock });
-                            // Update local cache to handle multiple deductions for the same material
-                             materialDocs.set(recipeItem.materialId, { ...material, stock: material.stock - requiredStock });
-                        }
+                for (const [materialId, requiredStock] of materialStockDeltas.entries()) {
+                    const materialRef = doc(db, 'materials', materialId).withConverter(materialConverter);
+                    const materialDoc = await transaction.get(materialRef);
+                    
+                    if (!materialDoc.exists()) throw new Error(`Material with ID ${materialId} not found.`);
+
+                    const currentStock = materialDoc.data().stock;
+                    if (currentStock < requiredStock) {
+                        throw new Error(`Insufficient stock for ${materialDoc.data().name}. Required: ${requiredStock}, Available: ${currentStock}`);
                     }
+                    transaction.update(materialRef, { stock: currentStock - requiredStock });
                 }
 
                 const newOrderRef = doc(collection(db, 'orders'));
@@ -235,32 +236,35 @@ export function OrdersTable() {
 
   const handleUpdateStatus = async (order: Order, newStatus: 'Completed' | 'Cancelled') => {
     if (!order || order.status !== 'Pending') return;
-    const orderDocRef = doc(db, 'orders', order.id);
     
     if (newStatus === 'Cancelled') {
          // Add stock back if order is cancelled
-        const batch = writeBatch(db);
-        for (const item of order.items) {
-            const drink = allDrinks.find(d => d.id === item.drinkId);
-            if (drink) {
-                for (const recipeItem of drink.recipe) {
-                    const material = allMaterials.find(m => m.id === recipeItem.materialId);
-                    if(material) {
-                        const materialRef = doc(db, 'materials', material.id);
-                        const stockToReturn = recipeItem.quantity * item.quantity;
-                        // Use live data for material stock to avoid race conditions
-                        const currentMaterial = allMaterials.find(m => m.id === material.id);
-                        if (currentMaterial) {
-                            batch.update(materialRef, { stock: currentMaterial.stock + stockToReturn });
+        try {
+            await runTransaction(db, async (transaction) => {
+                for (const item of order.items) {
+                    const drink = allDrinks.find(d => d.id === item.drinkId);
+                    if (drink) {
+                        for (const recipeItem of drink.recipe) {
+                            const materialRef = doc(db, 'materials', recipeItem.materialId).withConverter(materialConverter);
+                            const materialDoc = await transaction.get(materialRef);
+                            if (!materialDoc.exists()) throw new Error("Material not found");
+                            const stockToReturn = recipeItem.quantity * item.quantity;
+                            transaction.update(materialRef, { stock: materialDoc.data().stock + stockToReturn });
                         }
                     }
                 }
-            }
+                const orderRef = doc(db, 'orders', order.id);
+                transaction.update(orderRef, { status: newStatus });
+            });
+            toast({ title: "Order cancelled and stock restored."});
+        } catch (error: any) {
+            toast({ variant: "destructive", title: "Error cancelling order", description: error.message });
         }
-        await batch.commit();
+    } else if (newStatus === 'Completed') {
+        const orderDocRef = doc(db, 'orders', order.id);
+        await updateDoc(orderDocRef, { status: newStatus });
+        toast({title: "Order marked as completed."});
     }
-    
-    await updateDoc(orderDocRef, { status: newStatus });
   };
 
   const getDrinkName = (id: string) => allDrinks.find(d => d.id === id)?.name || 'Unknown';
