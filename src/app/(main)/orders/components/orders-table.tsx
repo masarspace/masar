@@ -3,7 +3,7 @@
 
 import * as React from 'react';
 import { useCollection } from 'react-firebase-hooks/firestore';
-import { collection, addDoc, doc, updateDoc, deleteDoc, writeBatch, runTransaction } from 'firebase/firestore';
+import { collection, doc, updateDoc, deleteDoc, runTransaction } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { orderConverter, drinkConverter, materialConverter } from '@/lib/converters';
 import {
@@ -164,17 +164,21 @@ export function OrdersTable() {
                 processItems(oldItems, 1); // Add back old item stock
                 processItems(itemsToSave, -1); // Deduct new item stock
 
-                // Check for sufficient stock and update
-                for (const [materialId, change] of stockChanges.entries()) {
-                    const materialRef = doc(db, 'materials', materialId).withConverter(materialConverter);
-                    const materialDoc = await transaction.get(materialRef);
+                const materialRefs = Array.from(stockChanges.keys()).map(id => doc(db, 'materials', id).withConverter(materialConverter));
+                const materialDocs = await Promise.all(materialRefs.map(ref => transaction.get(ref)));
+
+                for(let i = 0; i < materialDocs.length; i++) {
+                    const materialDoc = materialDocs[i];
+                    const materialId = materialRefs[i].id;
+                    const change = stockChanges.get(materialId) || 0;
+                    
                     if (!materialDoc.exists()) throw new Error(`Material with ID ${materialId} not found.`);
                     
                     const newStock = materialDoc.data().stock + change;
                     if (newStock < 0) {
                         throw new Error(`Insufficient stock for ${materialDoc.data().name}.`);
                     }
-                    transaction.update(materialRef, { stock: newStock });
+                    transaction.update(materialRefs[i], { stock: newStock });
                 }
 
                 transaction.update(orderDocRef, { items: itemsToSave });
@@ -191,7 +195,6 @@ export function OrdersTable() {
             await runTransaction(db, async (transaction) => {
                 const materialStockDeltas = new Map<string, number>();
 
-                // Calculate total required stock for each material
                 for (const item of itemsToSave) {
                     const drink = allDrinks.find(d => d.id === item.drinkId);
                     if (drink) {
@@ -202,18 +205,29 @@ export function OrdersTable() {
                     }
                 }
                 
-                // Check stock and apply updates
-                for (const [materialId, requiredStock] of materialStockDeltas.entries()) {
-                    const materialRef = doc(db, 'materials', materialId).withConverter(materialConverter);
-                    const materialDoc = await transaction.get(materialRef);
+                const materialRefs = Array.from(materialStockDeltas.keys()).map(id => doc(db, 'materials', id).withConverter(materialConverter));
+                const materialDocs = await Promise.all(materialRefs.map(ref => transaction.get(ref)));
+                
+                for (let i = 0; i < materialDocs.length; i++) {
+                    const materialDoc = materialDocs[i];
+                    const materialId = materialRefs[i].id;
                     
-                    if (!materialDoc.exists()) throw new Error(`Material with ID ${materialId} not found.`);
-
+                    if (!materialDoc.exists()) {
+                        throw new Error(`Material with ID ${materialId} not found.`);
+                    }
+                    const requiredStock = materialStockDeltas.get(materialId)!;
                     const currentStock = materialDoc.data().stock;
                     if (currentStock < requiredStock) {
                         throw new Error(`Insufficient stock for ${materialDoc.data().name}. Required: ${requiredStock}, Available: ${currentStock}`);
                     }
-                    transaction.update(materialRef, { stock: currentStock - requiredStock });
+                }
+
+                for (let i = 0; i < materialDocs.length; i++) {
+                    const materialDoc = materialDocs[i];
+                    const materialId = materialRefs[i].id;
+                    const requiredStock = materialStockDeltas.get(materialId)!;
+                    const currentStock = materialDoc.data().stock;
+                    transaction.update(materialRefs[i], { stock: currentStock - requiredStock });
                 }
 
                 const newOrderRef = doc(collection(db, 'orders'));
@@ -226,7 +240,7 @@ export function OrdersTable() {
             toast({ title: "Order created successfully!" });
         } catch (error: any) {
             toast({ variant: "destructive", title: "Error creating order", description: error.message });
-            return; // Important: stop execution if transaction fails
+            return; 
         }
     }
 
@@ -238,7 +252,6 @@ export function OrdersTable() {
     if (!order || order.status !== 'Pending') return;
     
     if (newStatus === 'Cancelled') {
-         // Add stock back if order is cancelled
         try {
             await runTransaction(db, async (transaction) => {
                 for (const item of order.items) {
