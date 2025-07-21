@@ -39,6 +39,7 @@ export type PurchaseCategory = {
 export type PurchaseOrderItem = {
   materialId: string;
   quantity: number;
+  unit: Material['unit'];
   price: number; // Price per unit
 };
 

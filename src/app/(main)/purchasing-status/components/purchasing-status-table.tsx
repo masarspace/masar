@@ -27,6 +27,19 @@ import type { PurchaseOrder } from '@/lib/types';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from "@/hooks/use-toast";
 
+const CONVERSION_FACTORS: Record<string, number> = {
+  'g_to_kg': 0.001,
+  'kg_to_g': 1000,
+  'ml_to_l': 0.001,
+  'l_to_ml': 1000,
+};
+
+function getConversionFactor(fromUnit: string, toUnit: string): number {
+    if (fromUnit === toUnit) return 1;
+    const key = `${fromUnit}_to_${toUnit}`;
+    return CONVERSION_FACTORS[key] || 1; // Default to 1 if no conversion is defined
+}
+
 export function PurchasingStatusTable() {
   const [purchaseOrdersSnapshot, poLoading] = useCollection(query(collection(db, 'purchaseOrders'), orderBy('createdAt', 'desc')).withConverter(purchaseOrderConverter));
   const [materialsSnapshot, materialsLoading] = useCollection(collection(db, 'materials').withConverter(materialConverter));
@@ -68,60 +81,50 @@ export function PurchasingStatusTable() {
         await runTransaction(db, async (transaction) => {
             const orderRef = doc(db, 'purchaseOrders', orderId);
             const orderDoc = await transaction.get(orderRef.withConverter(purchaseOrderConverter));
-
-            if (!orderDoc.exists()) {
-                throw new Error("Purchase order not found.");
-            }
-            
+            if (!orderDoc.exists()) throw new Error("Purchase order not found.");
             const orderData = orderDoc.data();
             const oldStatus = orderData.status;
 
             if (oldStatus === newStatus) return;
 
-            // Step 1: Read all necessary data
-            const materialDocsPromises = orderData.items.map(item => 
-                transaction.get(doc(db, 'materials', item.materialId).withConverter(materialConverter))
+            const materialRefs = orderData.items.map(item => 
+                doc(db, 'materials', item.materialId).withConverter(materialConverter)
             );
-            const materialDocs = await Promise.all(materialDocsPromises);
+            const materialDocs = await Promise.all(materialRefs.map(ref => transaction.get(ref)));
 
-            // Step 2: Prepare updates based on logic
             const poUpdateData: any = { status: newStatus };
-            const materialUpdates = new Map<string, number>(); // materialId -> newStock
 
             // When order is COMPLETED, add stock to materials
             if (newStatus === 'Completed' && oldStatus !== 'Completed') {
                 poUpdateData.receivedAt = new Date().toISOString();
-
-                for (let i = 0; i < orderData.items.length; i++) {
-                    const item = orderData.items[i];
+                for (let i = 0; i < materialDocs.length; i++) {
                     const materialDoc = materialDocs[i];
-                    if(!materialDoc.exists()) throw new Error(`Material ${getMaterialName(item.materialId)} not found.`);
-                    
-                    const newStock = materialDoc.data().stock + item.quantity;
-                    materialUpdates.set(item.materialId, newStock);
+                    const item = orderData.items[i];
+                    if (!materialDoc.exists()) throw new Error(`Material ${getMaterialName(item.materialId)} not found.`);
+                    const materialData = materialDoc.data();
+                    const conversionFactor = getConversionFactor(item.unit, materialData.unit);
+                    const quantityToAdd = item.quantity * conversionFactor;
+                    const newStock = materialData.stock + quantityToAdd;
+                    transaction.update(materialDoc.ref, { stock: newStock });
                 }
             }
             // When order is moved FROM completed, REMOVE stock
             else if (oldStatus === 'Completed' && newStatus !== 'Completed') {
                 poUpdateData.receivedAt = deleteField();
-
-                for (let i = 0; i < orderData.items.length; i++) {
-                    const item = orderData.items[i];
+                 for (let i = 0; i < materialDocs.length; i++) {
                     const materialDoc = materialDocs[i];
-                    if(!materialDoc.exists()) throw new Error(`Material ${getMaterialName(item.materialId)} not found.`);
-                    
-                    const newStock = materialDoc.data().stock - item.quantity;
-                    if (newStock < 0) throw new Error(`Cannot reverse order, insufficient stock for ${materialDoc.data().name}.`);
-                    materialUpdates.set(item.materialId, newStock);
+                    const item = orderData.items[i];
+                    if (!materialDoc.exists()) throw new Error(`Material ${getMaterialName(item.materialId)} not found.`);
+                    const materialData = materialDoc.data();
+                    const conversionFactor = getConversionFactor(item.unit, materialData.unit);
+                    const quantityToRemove = item.quantity * conversionFactor;
+                    const newStock = materialData.stock - quantityToRemove;
+                    if (newStock < 0) throw new Error(`Cannot reverse order, insufficient stock for ${materialData.name}.`);
+                    transaction.update(materialDoc.ref, { stock: newStock });
                 }
             }
             
-            // Step 3: Write all updates at the end
             transaction.update(orderRef, poUpdateData);
-            for (const [materialId, newStock] of materialUpdates.entries()) {
-                const materialRef = doc(db, 'materials', materialId);
-                transaction.update(materialRef, { stock: newStock });
-            }
         });
         toast({ title: `Order status updated to ${newStatus}.`});
      } catch (error: any) {
@@ -196,7 +199,7 @@ export function PurchasingStatusTable() {
                  {order.receivedAt ? (formattedDates.get(order.id)?.receivedAt || <Skeleton className="h-5 w-24" />) : 'N/A'}
               </TableCell>
               <TableCell>
-                {order.items.map(i => `${i.quantity} x ${getMaterialName(i.materialId)}`).join(', ')}
+                {order.items.map(i => `${i.quantity}${i.unit} x ${getMaterialName(i.materialId)}`).join(', ')}
               </TableCell>
               <TableCell className="hidden md:table-cell">${getOrderTotal(order.items).toFixed(2)}</TableCell>
               <TableCell>

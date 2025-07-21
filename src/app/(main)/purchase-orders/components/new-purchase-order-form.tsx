@@ -3,7 +3,7 @@
 
 import * as React from 'react';
 import { useCollection } from 'react-firebase-hooks/firestore';
-import { collection, addDoc } from 'firebase/firestore';
+import { collection, addDoc, doc, setDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { materialConverter, purchaseCategoryConverter, purchaseOrderConverter } from '@/lib/converters';
 import type { PurchaseOrderItem, Material, PurchaseCategory } from '@/lib/types';
@@ -31,13 +31,16 @@ export function NewPurchaseOrderForm() {
 
   const handleItemChange = (materialId: string, checked: boolean | 'indeterminate') => {
     if (checked) {
-      setOrderItems([...orderItems, { materialId, quantity: 1, price: 0 }]);
+      const material = allMaterials.find(m => m.id === materialId);
+      if (material) {
+        setOrderItems([...orderItems, { materialId, quantity: 1, unit: material.unit, price: 0 }]);
+      }
     } else {
       setOrderItems(orderItems.filter(item => item.materialId !== materialId));
     }
   };
 
-  const handleFieldChange = (materialId: string, field: 'quantity' | 'price', value: number) => {
+  const handleFieldChange = (materialId: string, field: 'quantity' | 'price' | 'unit', value: number | string) => {
     setOrderItems(orderItems.map(item => item.materialId === materialId ? { ...item, [field]: value } : item));
   };
 
@@ -83,7 +86,6 @@ export function NewPurchaseOrderForm() {
     }
   };
 
-  const getMaterialUnit = (id: string) => allMaterials.find(m => m.id === id)?.unit || '';
 
   if (materialsLoading || categoriesLoading) {
     return <Skeleton className="h-[400px] w-full" />
@@ -128,17 +130,33 @@ export function NewPurchaseOrderForm() {
                             <Label htmlFor={`mat-${material.id}`} className="font-medium">{material.name}</Label>
                         </div>
                         {orderItem && (
-                            <div className="flex items-center gap-2 w-full sm:w-auto">
+                            <div className="flex items-center gap-2 w-full sm:w-auto flex-wrap">
                                 <Input
                                     type="number"
-                                    className="w-full sm:w-28"
+                                    className="w-full sm:w-24"
                                     min="0.01"
                                     step="0.01"
-                                    placeholder={`Qty (${getMaterialUnit(material.id)})`}
+                                    placeholder="Quantity"
                                     defaultValue={orderItem.quantity === 1 ? '' : orderItem.quantity}
                                     onChange={(e) => handleFieldChange(material.id, 'quantity', Number(e.target.value))}
                                     required
                                 />
+                                <Select 
+                                    defaultValue={orderItem.unit} 
+                                    onValueChange={(value) => handleFieldChange(material.id, 'unit', value)}
+                                    required
+                                >
+                                    <SelectTrigger className="w-full sm:w-24">
+                                        <SelectValue placeholder="Unit" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="kg">kg</SelectItem>
+                                        <SelectItem value="g">g</SelectItem>
+                                        <SelectItem value="l">l</SelectItem>
+                                        <SelectItem value="ml">ml</SelectItem>
+                                        <SelectItem value="piece">piece</SelectItem>
+                                    </SelectContent>
+                                </Select>
                                 <Input
                                     type="number"
                                     className="w-full sm:w-28"
