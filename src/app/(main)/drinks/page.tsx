@@ -1,4 +1,3 @@
-import { drinks, materials } from '@/lib/data';
 import { DrinksTable } from './components/drinks-table';
 import { GlassWater } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -20,7 +19,7 @@ export default function DrinksPage() {
           <CardDescription>A list of all drinks and their recipes.</CardDescription>
         </CardHeader>
         <CardContent>
-          <DrinksTable initialDrinks={drinks} allMaterials={materials} />
+          <DrinksTable />
         </CardContent>
       </Card>
     </div>

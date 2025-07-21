@@ -1,4 +1,3 @@
-import { orders, drinks } from '@/lib/data';
 import { OrdersTable } from './components/orders-table';
 import { ShoppingCart } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -20,7 +19,7 @@ export default function OrdersPage() {
           <CardDescription>A list of all customer orders.</CardDescription>
         </CardHeader>
         <CardContent>
-          <OrdersTable initialOrders={orders} allDrinks={drinks} />
+          <OrdersTable />
         </CardContent>
       </Card>
     </div>

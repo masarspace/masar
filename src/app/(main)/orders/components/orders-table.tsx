@@ -1,6 +1,10 @@
 "use client";
 
 import * as React from 'react';
+import { useCollection } from 'react-firebase-hooks/firestore';
+import { collection, addDoc, doc, updateDoc, deleteDoc } from 'firebase/firestore';
+import { db } from '@/lib/firebase';
+import { orderConverter, drinkConverter } from '@/lib/converters';
 import {
   Table,
   TableBody,
@@ -33,14 +37,15 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Input } from '@/components/ui/input';
 import { Checkbox } from '@/components/ui/checkbox';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { Skeleton } from '@/components/ui/skeleton';
 
-interface OrdersTableProps {
-  initialOrders: Order[];
-  allDrinks: Drink[];
-}
+export function OrdersTable() {
+  const [ordersSnapshot, ordersLoading] = useCollection(collection(db, 'orders').withConverter(orderConverter));
+  const [drinksSnapshot, drinksLoading] = useCollection(collection(db, 'drinks').withConverter(drinkConverter));
 
-export function OrdersTable({ initialOrders, allDrinks }: OrdersTableProps) {
-  const [orders, setOrders] = React.useState(initialOrders);
+  const orders = ordersSnapshot?.docs.map(doc => doc.data()).sort((a,b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()) ?? [];
+  const allDrinks = drinksSnapshot?.docs.map(doc => doc.data()) ?? [];
+
   const [isSheetOpen, setIsSheetOpen] = React.useState(false);
   const [selectedOrder, setSelectedOrder] = React.useState<Order | null>(null);
   const [orderItems, setOrderItems] = React.useState<OrderItem[]>([]);
@@ -55,6 +60,7 @@ export function OrdersTable({ initialOrders, allDrinks }: OrdersTableProps) {
 
   const handleAddClick = () => {
     setSelectedOrder(null);
+    setOrderItems([]);
     setIsSheetOpen(true);
   };
 
@@ -63,8 +69,9 @@ export function OrdersTable({ initialOrders, allDrinks }: OrdersTableProps) {
     setIsSheetOpen(true);
   };
 
-  const handleDeleteClick = (id: string) => {
-    setOrders(orders.filter((o) => o.id !== id));
+  const handleDeleteClick = async (id: string) => {
+    if(!id) return;
+    await deleteDoc(doc(db, 'orders', id));
   };
 
   const handleItemChange = (drinkId: string, checked: boolean | 'indeterminate') => {
@@ -79,22 +86,23 @@ export function OrdersTable({ initialOrders, allDrinks }: OrdersTableProps) {
     setOrderItems(orderItems.map(item => item.drinkId === drinkId ? { ...item, quantity } : item));
   };
   
-  const handleFormSubmit = (e: React.FormEvent<HTMLFormElement>) => {
+  const handleFormSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const formData = new FormData(e.currentTarget);
-    const newOrder: Order = {
-        id: selectedOrder ? selectedOrder.id : `order-${Date.now()}`,
+    const orderData: Omit<Order, 'id'> = {
         status: (formData.get('status') as Order['status']) || 'Pending',
         createdAt: selectedOrder ? selectedOrder.createdAt : new Date().toISOString(),
         items: orderItems.filter(i => i.quantity > 0),
     };
 
     if (selectedOrder) {
-        setOrders(orders.map(o => o.id === newOrder.id ? newOrder : o));
+        const orderDocRef = doc(db, 'orders', selectedOrder.id);
+        await updateDoc(orderDocRef, orderData);
     } else {
-        setOrders([newOrder, ...orders]);
+        await addDoc(collection(db, 'orders').withConverter(orderConverter), orderData);
     }
     setIsSheetOpen(false);
+    setSelectedOrder(null);
   }
 
   const getDrinkName = (id: string) => allDrinks.find(d => d.id === id)?.name || 'Unknown';
@@ -104,6 +112,42 @@ export function OrdersTable({ initialOrders, allDrinks }: OrdersTableProps) {
         const drink = allDrinks.find(d => d.id === item.drinkId);
         return total + (drink ? drink.price * item.quantity : 0);
     }, 0);
+  }
+
+  if (ordersLoading || drinksLoading) {
+     return (
+       <div className="space-y-4">
+        <div className="flex justify-end">
+          <Skeleton className="h-10 w-36" />
+        </div>
+        <div className="rounded-md border">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Order ID</TableHead>
+                <TableHead>Date</TableHead>
+                <TableHead>Items</TableHead>
+                <TableHead>Total</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead className="text-right">Actions</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {[...Array(5)].map((_, i) => (
+                <TableRow key={i}>
+                  <TableCell><Skeleton className="h-5 w-24" /></TableCell>
+                  <TableCell><Skeleton className="h-5 w-24" /></TableCell>
+                  <TableCell><Skeleton className="h-5 w-48" /></TableCell>
+                  <TableCell><Skeleton className="h-5 w-16" /></TableCell>
+                  <TableCell><Skeleton className="h-6 w-20 rounded-full" /></TableCell>
+                  <TableCell className="text-right"><Skeleton className="h-8 w-8 ml-auto" /></TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -126,7 +170,7 @@ export function OrdersTable({ initialOrders, allDrinks }: OrdersTableProps) {
           <TableBody>
             {orders.map((order) => (
               <TableRow key={order.id}>
-                <TableCell className="font-medium">{order.id}</TableCell>
+                <TableCell className="font-mono text-xs">{order.id}</TableCell>
                 <TableCell>{new Date(order.createdAt).toLocaleDateString()}</TableCell>
                 <TableCell>
                   {order.items.map(i => `${i.quantity}x ${getDrinkName(i.drinkId)}`).join(', ')}
@@ -206,6 +250,7 @@ export function OrdersTable({ initialOrders, allDrinks }: OrdersTableProps) {
                                   placeholder="Qty"
                                   defaultValue={orderItem.quantity}
                                   onChange={(e) => handleQuantityChange(drink.id, Number(e.target.value))}
+                                  required
                                />
                           )}
                         </div>
@@ -216,9 +261,7 @@ export function OrdersTable({ initialOrders, allDrinks }: OrdersTableProps) {
               </div>
             </div>
             <SheetFooter>
-              <SheetClose asChild>
-                <Button type="submit">Save Order</Button>
-              </SheetClose>
+              <Button type="submit">Save Order</Button>
             </SheetFooter>
           </form>
         </SheetContent>

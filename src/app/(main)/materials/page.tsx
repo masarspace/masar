@@ -1,4 +1,3 @@
-import { materials } from '@/lib/data';
 import { MaterialsTable } from './components/materials-table';
 import { Package } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -20,7 +19,7 @@ export default function MaterialsPage() {
             <CardDescription>A list of all materials in your inventory.</CardDescription>
         </CardHeader>
         <CardContent>
-            <MaterialsTable data={materials} />
+            <MaterialsTable />
         </CardContent>
       </Card>
     </div>

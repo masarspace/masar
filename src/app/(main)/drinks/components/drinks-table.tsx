@@ -1,6 +1,10 @@
 "use client";
 
 import * as React from 'react';
+import { useCollection } from 'react-firebase-hooks/firestore';
+import { collection, addDoc, doc, updateDoc, deleteDoc } from 'firebase/firestore';
+import { db } from '@/lib/firebase';
+import { drinkConverter, materialConverter } from '@/lib/converters';
 import {
   Table,
   TableBody,
@@ -31,20 +35,21 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { Skeleton } from '@/components/ui/skeleton';
 
-interface DrinksTableProps {
-  initialDrinks: Drink[];
-  allMaterials: Material[];
-}
+export function DrinksTable() {
+  const [drinksSnapshot, drinksLoading] = useCollection(collection(db, 'drinks').withConverter(drinkConverter));
+  const [materialsSnapshot, materialsLoading] = useCollection(collection(db, 'materials').withConverter(materialConverter));
 
-export function DrinksTable({ initialDrinks, allMaterials }: DrinksTableProps) {
-  const [drinks, setDrinks] = React.useState(initialDrinks);
+  const drinks = drinksSnapshot?.docs.map(doc => doc.data()) ?? [];
+  const allMaterials = materialsSnapshot?.docs.map(doc => doc.data()) ?? [];
+
   const [isSheetOpen, setIsSheetOpen] = React.useState(false);
   const [selectedDrink, setSelectedDrink] = React.useState<Drink | null>(null);
   const [recipe, setRecipe] = React.useState<DrinkRecipeItem[]>([]);
 
   React.useEffect(() => {
-    if(selectedDrink) {
+    if (selectedDrink) {
       setRecipe(selectedDrink.recipe);
     } else {
       setRecipe([]);
@@ -53,6 +58,7 @@ export function DrinksTable({ initialDrinks, allMaterials }: DrinksTableProps) {
 
   const handleAddClick = () => {
     setSelectedDrink(null);
+    setRecipe([]);
     setIsSheetOpen(true);
   };
 
@@ -61,10 +67,11 @@ export function DrinksTable({ initialDrinks, allMaterials }: DrinksTableProps) {
     setIsSheetOpen(true);
   };
 
-  const handleDeleteClick = (id: string) => {
-    setDrinks(drinks.filter((d) => d.id !== id));
+  const handleDeleteClick = async (id: string) => {
+    if(!id) return;
+    await deleteDoc(doc(db, 'drinks', id));
   };
-  
+
   const handleRecipeChange = (materialId: string, checked: boolean | 'indeterminate') => {
     if (checked) {
       setRecipe([...recipe, { materialId, quantity: 0 }]);
@@ -77,25 +84,60 @@ export function DrinksTable({ initialDrinks, allMaterials }: DrinksTableProps) {
     setRecipe(recipe.map(item => item.materialId === materialId ? { ...item, quantity } : item));
   };
 
-  const handleFormSubmit = (e: React.FormEvent<HTMLFormElement>) => {
+  const handleFormSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const formData = new FormData(e.currentTarget);
-    const newDrink = {
-      id: selectedDrink ? selectedDrink.id : `drink-${Date.now()}`,
+    
+    const drinkData = {
       name: formData.get('name') as string,
       price: Number(formData.get('price')),
       recipe: recipe.filter(r => r.quantity > 0),
     };
 
     if (selectedDrink) {
-      setDrinks(drinks.map(d => d.id === newDrink.id ? newDrink : d));
+      const drinkDocRef = doc(db, 'drinks', selectedDrink.id);
+      await updateDoc(drinkDocRef, drinkData);
     } else {
-      setDrinks([...drinks, newDrink]);
+      await addDoc(collection(db, 'drinks'), drinkData);
     }
     setIsSheetOpen(false);
+    setSelectedDrink(null);
+    setRecipe([]);
   };
 
   const getMaterialName = (id: string) => allMaterials.find(m => m.id === id)?.name || 'Unknown';
+
+  if (drinksLoading || materialsLoading) {
+    return (
+       <div className="space-y-4">
+        <div className="flex justify-end">
+          <Skeleton className="h-10 w-32" />
+        </div>
+        <div className="rounded-md border">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Name</TableHead>
+                <TableHead>Price</TableHead>
+                <TableHead>Recipe</TableHead>
+                <TableHead className="text-right">Actions</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {[...Array(5)].map((_, i) => (
+                <TableRow key={i}>
+                  <TableCell><Skeleton className="h-5 w-24" /></TableCell>
+                  <TableCell><Skeleton className="h-5 w-16" /></TableCell>
+                  <TableCell><Skeleton className="h-5 w-48" /></TableCell>
+                  <TableCell className="text-right"><Skeleton className="h-8 w-8 ml-auto" /></TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <>
@@ -154,11 +196,11 @@ export function DrinksTable({ initialDrinks, allMaterials }: DrinksTableProps) {
             <div className="grid gap-4 py-4">
               <div className="grid grid-cols-4 items-center gap-4">
                 <Label htmlFor="name" className="text-right">Name</Label>
-                <Input id="name" name="name" defaultValue={selectedDrink?.name} className="col-span-3" />
+                <Input id="name" name="name" defaultValue={selectedDrink?.name} className="col-span-3" required/>
               </div>
               <div className="grid grid-cols-4 items-center gap-4">
                 <Label htmlFor="price" className="text-right">Price</Label>
-                <Input id="price" name="price" type="number" step="0.01" defaultValue={selectedDrink?.price} className="col-span-3" />
+                <Input id="price" name="price" type="number" step="0.01" defaultValue={selectedDrink?.price} className="col-span-3" required/>
               </div>
               <div>
                 <Label>Recipe Ingredients</Label>
@@ -180,8 +222,10 @@ export function DrinksTable({ initialDrinks, allMaterials }: DrinksTableProps) {
                                   step="0.01"
                                   className="w-32"
                                   placeholder={`Qty (${material.unit})`}
-                                  defaultValue={recipeItem.quantity}
+                                  defaultValue={recipeItem.quantity || ''}
                                   onChange={(e) => handleQuantityChange(material.id, Number(e.target.value))}
+                                  min="0.01"
+                                  required
                                />
                           )}
                         </div>
@@ -192,9 +236,7 @@ export function DrinksTable({ initialDrinks, allMaterials }: DrinksTableProps) {
               </div>
             </div>
             <SheetFooter>
-              <SheetClose asChild>
-                <Button type="submit">Save Recipe</Button>
-              </SheetClose>
+              <Button type="submit">Save Recipe</Button>
             </SheetFooter>
           </form>
         </SheetContent>

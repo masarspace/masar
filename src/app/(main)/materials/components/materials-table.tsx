@@ -1,6 +1,10 @@
 "use client";
 
 import * as React from 'react';
+import { useCollection } from 'react-firebase-hooks/firestore';
+import { collection, addDoc, doc, updateDoc, deleteDoc } from 'firebase/firestore';
+import { db } from '@/lib/firebase';
+import { materialConverter } from '@/lib/converters';
 import {
   Table,
   TableBody,
@@ -31,9 +35,11 @@ import type { Material } from '@/lib/types';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Skeleton } from '@/components/ui/skeleton';
 
-export function MaterialsTable({ data }: { data: Material[] }) {
-  const [materials, setMaterials] = React.useState(data);
+export function MaterialsTable() {
+  const [snapshot, loading] = useCollection(collection(db, 'materials').withConverter(materialConverter));
+  const materials = snapshot?.docs.map(doc => doc.data()) ?? [];
   const [isSheetOpen, setIsSheetOpen] = React.useState(false);
   const [selectedMaterial, setSelectedMaterial] = React.useState<Material | null>(null);
 
@@ -47,15 +53,15 @@ export function MaterialsTable({ data }: { data: Material[] }) {
     setIsSheetOpen(true);
   };
 
-  const handleDeleteClick = (id: string) => {
-    setMaterials(materials.filter((m) => m.id !== id));
+  const handleDeleteClick = async (id: string) => {
+    if(!id) return;
+    await deleteDoc(doc(db, 'materials', id));
   };
   
-  const handleFormSubmit = (e: React.FormEvent<HTMLFormElement>) => {
+  const handleFormSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const formData = new FormData(e.currentTarget);
-    const newMaterial = {
-        id: selectedMaterial ? selectedMaterial.id : `mat-${Date.now()}`,
+    const materialData = {
         name: formData.get('name') as string,
         stock: Number(formData.get('stock')),
         unit: formData.get('unit') as Material['unit'],
@@ -63,11 +69,45 @@ export function MaterialsTable({ data }: { data: Material[] }) {
     };
 
     if (selectedMaterial) {
-        setMaterials(materials.map(m => m.id === newMaterial.id ? newMaterial : m));
+        const materialDocRef = doc(db, 'materials', selectedMaterial.id);
+        await updateDoc(materialDocRef, materialData);
     } else {
-        setMaterials([...materials, newMaterial]);
+        await addDoc(collection(db, 'materials'), materialData);
     }
     setIsSheetOpen(false);
+    setSelectedMaterial(null);
+  }
+
+  if (loading) {
+    return (
+      <div className="space-y-4">
+        <div className="flex justify-end">
+          <Skeleton className="h-10 w-36" />
+        </div>
+        <div className="rounded-md border">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Name</TableHead>
+                <TableHead>Stock</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead className="text-right">Actions</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {[...Array(5)].map((_, i) => (
+                <TableRow key={i}>
+                  <TableCell><Skeleton className="h-5 w-32" /></TableCell>
+                  <TableCell><Skeleton className="h-5 w-24" /></TableCell>
+                  <TableCell><Skeleton className="h-5 w-20" /></TableCell>
+                  <TableCell className="text-right"><Skeleton className="h-8 w-8 ml-auto" /></TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+      </div>
+    );
   }
 
   return (
@@ -140,15 +180,15 @@ export function MaterialsTable({ data }: { data: Material[] }) {
           <div className="grid gap-4 py-4">
             <div className="grid grid-cols-4 items-center gap-4">
               <Label htmlFor="name" className="text-right">Name</Label>
-              <Input id="name" name="name" defaultValue={selectedMaterial?.name} className="col-span-3" />
+              <Input id="name" name="name" defaultValue={selectedMaterial?.name} className="col-span-3" required/>
             </div>
             <div className="grid grid-cols-4 items-center gap-4">
               <Label htmlFor="stock" className="text-right">Stock</Label>
-              <Input id="stock" name="stock" type="number" defaultValue={selectedMaterial?.stock} className="col-span-3" />
+              <Input id="stock" name="stock" type="number" defaultValue={selectedMaterial?.stock} className="col-span-3" required/>
             </div>
             <div className="grid grid-cols-4 items-center gap-4">
               <Label htmlFor="unit" className="text-right">Unit</Label>
-               <Select name="unit" defaultValue={selectedMaterial?.unit}>
+               <Select name="unit" defaultValue={selectedMaterial?.unit} required>
                 <SelectTrigger className="col-span-3">
                   <SelectValue placeholder="Select a unit" />
                 </SelectTrigger>
@@ -163,13 +203,11 @@ export function MaterialsTable({ data }: { data: Material[] }) {
             </div>
              <div className="grid grid-cols-4 items-center gap-4">
               <Label htmlFor="lowStockThreshold" className="text-right whitespace-nowrap">Low Stock At</Label>
-              <Input id="lowStockThreshold" name="lowStockThreshold" type="number" defaultValue={selectedMaterial?.lowStockThreshold} className="col-span-3" />
+              <Input id="lowStockThreshold" name="lowStockThreshold" type="number" defaultValue={selectedMaterial?.lowStockThreshold} className="col-span-3" required/>
             </div>
           </div>
           <SheetFooter>
-            <SheetClose asChild>
               <Button type="submit">Save changes</Button>
-            </SheetClose>
           </SheetFooter>
           </form>
         </SheetContent>
