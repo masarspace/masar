@@ -3,6 +3,7 @@ import {
   type FirestoreDataConverter,
   type QueryDocumentSnapshot,
   type SnapshotOptions,
+  FieldValue,
 } from 'firebase/firestore';
 import type { Material, Drink, Order, PurchaseCategory, PurchaseOrder } from './types';
 
@@ -87,12 +88,12 @@ export const purchaseCategoryConverter: FirestoreDataConverter<PurchaseCategory>
 };
 
 export const purchaseOrderConverter: FirestoreDataConverter<PurchaseOrder> = {
-  toFirestore(purchaseOrder: PurchaseOrder | Omit<PurchaseOrder, 'id'>): DocumentData {
-    if ('id' in purchaseOrder) {
-        const { id, ...data } = purchaseOrder;
-        return data;
+  toFirestore(purchaseOrder: Partial<PurchaseOrder>): DocumentData {
+    const { id, ...data } = purchaseOrder;
+     if (data.receivedAt === undefined) {
+      data.receivedAt = FieldValue.delete() as any;
     }
-    return purchaseOrder;
+    return data;
   },
   fromFirestore(
     snapshot: QueryDocumentSnapshot,

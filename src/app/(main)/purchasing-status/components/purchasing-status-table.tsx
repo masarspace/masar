@@ -3,7 +3,7 @@
 
 import * as React from 'react';
 import { useCollection } from 'react-firebase-hooks/firestore';
-import { collection, doc, runTransaction } from 'firebase/firestore';
+import { collection, doc, runTransaction, query, orderBy } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { purchaseOrderConverter, materialConverter } from '@/lib/converters';
 import {
@@ -19,22 +19,21 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-  DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { MoreHorizontal, CheckCircle, XCircle, Truck } from 'lucide-react';
+import { MoreHorizontal, CheckCircle, XCircle, Truck, RefreshCw } from 'lucide-react';
 import type { PurchaseOrder } from '@/lib/types';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from "@/hooks/use-toast";
 
 export function PurchasingStatusTable() {
-  const [purchaseOrdersSnapshot, poLoading] = useCollection(collection(db, 'purchaseOrders').withConverter(purchaseOrderConverter));
+  const [purchaseOrdersSnapshot, poLoading] = useCollection(query(collection(db, 'purchaseOrders'), orderBy('createdAt', 'desc')).withConverter(purchaseOrderConverter));
   const [materialsSnapshot, materialsLoading] = useCollection(collection(db, 'materials').withConverter(materialConverter));
   const { toast } = useToast();
 
   const purchaseOrders = React.useMemo(() => {
-    return purchaseOrdersSnapshot?.docs.map(doc => doc.data()).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()) ?? [];
+    return purchaseOrdersSnapshot?.docs.map(doc => doc.data()) ?? [];
   }, [purchaseOrdersSnapshot]);
   
   const allMaterials = React.useMemo(() => {
@@ -47,6 +46,7 @@ export function PurchasingStatusTable() {
     if (purchaseOrders.length > 0) {
       const newFormattedDates = new Map();
       for (const order of purchaseOrders) {
+        // This effect runs only on the client, so `Intl` is safe here.
         const createdAt = new Intl.DateTimeFormat('en-US', {
           year: 'numeric', month: 'short', day: 'numeric'
         }).format(new Date(order.createdAt));
@@ -71,7 +71,7 @@ export function PurchasingStatusTable() {
             if (!orderDoc.exists()) throw new Error("Purchase order not found.");
             const orderData = orderDoc.data();
             
-            let updateData: any = { status: newStatus };
+            let updateData: Partial<PurchaseOrder> = { status: newStatus };
 
             // When order is completed, add stock to materials
             if (newStatus === 'Completed' && orderData.status !== 'Completed') {
@@ -88,7 +88,7 @@ export function PurchasingStatusTable() {
 
             // When order is moved from completed back to something else, remove stock
             if (orderData.status === 'Completed' && newStatus !== 'Completed') {
-                updateData.receivedAt = null; // or delete field
+                updateData.receivedAt = undefined;
                 for (const item of orderData.items) {
                     const materialRef = doc(db, 'materials', item.materialId);
                     const materialDoc = await transaction.get(materialRef.withConverter(materialConverter));
@@ -120,7 +120,8 @@ export function PurchasingStatusTable() {
             <TableHeader>
                <TableRow>
                 <TableHead className="hidden lg:table-cell">Order ID</TableHead>
-                <TableHead>Date</TableHead>
+                <TableHead>Created</TableHead>
+                <TableHead>Received</TableHead>
                 <TableHead>Items</TableHead>
                 <TableHead className="hidden md:table-cell">Total</TableHead>
                 <TableHead>Status</TableHead>
@@ -131,6 +132,7 @@ export function PurchasingStatusTable() {
               {[...Array(5)].map((_, i) => (
                 <TableRow key={i}>
                   <TableCell className="hidden lg:table-cell"><Skeleton className="h-5 w-24" /></TableCell>
+                  <TableCell><Skeleton className="h-5 w-24" /></TableCell>
                   <TableCell><Skeleton className="h-5 w-24" /></TableCell>
                   <TableCell><Skeleton className="h-5 w-48" /></TableCell>
                   <TableCell className="hidden md:table-cell"><Skeleton className="h-5 w-16" /></TableCell>
@@ -151,7 +153,8 @@ export function PurchasingStatusTable() {
         <TableHeader>
           <TableRow>
             <TableHead className="hidden lg:table-cell">Order ID</TableHead>
-            <TableHead>Details</TableHead>
+            <TableHead>Created</TableHead>
+            <TableHead>Received</TableHead>
             <TableHead>Items</TableHead>
             <TableHead className="hidden md:table-cell">Total</TableHead>
             <TableHead>Status</TableHead>
@@ -162,17 +165,13 @@ export function PurchasingStatusTable() {
           {purchaseOrders.map((order) => (
             <TableRow key={order.id}>
               <TableCell className="hidden lg:table-cell font-mono text-xs">{order.id}</TableCell>
-              <TableCell>
-                  <div>{order.category.name}</div>
+               <TableCell>
+                  <div>{formattedDates.get(order.id)?.createdAt || <Skeleton className="h-5 w-24" />}</div>
+                  <div className="text-xs text-muted-foreground">{order.category.name}</div>
                   <div className="text-xs text-muted-foreground">{order.location}</div>
-                  <div className="text-xs text-muted-foreground">
-                    Created: {formattedDates.get(order.id)?.createdAt || ''}
-                  </div>
-                   {order.receivedAt && (
-                     <div className="text-xs text-muted-foreground">
-                        Received: {formattedDates.get(order.id)?.receivedAt || ''}
-                    </div>
-                   )}
+              </TableCell>
+               <TableCell>
+                 {order.receivedAt ? (formattedDates.get(order.id)?.receivedAt || <Skeleton className="h-5 w-24" />) : 'N/A'}
               </TableCell>
               <TableCell>
                 {order.items.map(i => `${i.quantity} x ${getMaterialName(i.materialId)}`).join(', ')}
@@ -222,7 +221,7 @@ export function PurchasingStatusTable() {
                      )}
                      {(order.status === 'Cancelled' || order.status === 'Completed') && (
                         <DropdownMenuItem onClick={() => handleUpdateStatus(order.id, 'Pending')}>
-                            <CheckCircle className="mr-2 h-4 w-4" />
+                            <RefreshCw className="mr-2 h-4 w-4" />
                             Re-open as Pending
                         </DropdownMenuItem>
                      )}

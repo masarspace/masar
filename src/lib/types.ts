@@ -24,7 +24,7 @@ export type OrderItem = {
 };
 
 export type Order = {
-  id: string;
+  id:string;
   items: OrderItem[];
   status: 'Pending' | 'Completed' | 'Cancelled';
   createdAt: string; // ISO string
