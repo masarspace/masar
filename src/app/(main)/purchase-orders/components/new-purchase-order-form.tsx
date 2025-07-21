@@ -3,7 +3,7 @@
 
 import * as React from 'react';
 import { useCollection } from 'react-firebase-hooks/firestore';
-import { collection, addDoc, doc } from 'firebase/firestore';
+import { collection, doc, setDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { materialConverter, purchaseCategoryConverter, purchaseOrderConverter } from '@/lib/converters';
 import type { PurchaseOrderItem, Material, PurchaseCategory } from '@/lib/types';
@@ -69,7 +69,7 @@ export function NewPurchaseOrderForm() {
     
     const newOrderRef = doc(collection(db, 'purchaseOrders'));
     try {
-        await addDoc(collection(db, 'purchaseOrders').withConverter(purchaseOrderConverter), {
+        await setDoc(newOrderRef.withConverter(purchaseOrderConverter), {
             id: newOrderRef.id,
             status: 'Pending',
             createdAt: new Date().toISOString(),
