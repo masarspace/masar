@@ -3,7 +3,7 @@
 
 import * as React from 'react';
 import { useCollection } from 'react-firebase-hooks/firestore';
-import { collection, doc, setDoc } from 'firebase/firestore';
+import { collection, addDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { materialConverter, purchaseCategoryConverter, purchaseOrderConverter } from '@/lib/converters';
 import type { PurchaseOrderItem, Material, PurchaseCategory } from '@/lib/types';
@@ -67,18 +67,16 @@ export function NewPurchaseOrderForm() {
         return;
     }
     
-    const newOrderRef = doc(collection(db, 'purchaseOrders'));
     try {
-        await setDoc(newOrderRef.withConverter(purchaseOrderConverter), {
-            id: newOrderRef.id,
+        await addDoc(collection(db, 'purchaseOrders').withConverter(purchaseOrderConverter), {
             status: 'Pending',
             createdAt: new Date().toISOString(),
             items: itemsToSave,
             category: { id: selectedCategory.id, name: selectedCategory.name },
             location,
         });
-        toast({ title: "Purchase order created successfully!", description: "You can track its status on the Purchasing Status page." });
-        router.push('/purchasing-status');
+        toast({ title: "Purchase order created successfully!", description: "You can track its status on the Purchase Tracking page." });
+        router.push('/purchase-tracking');
     } catch (error: any) {
         toast({ variant: "destructive", title: "Error creating order", description: error.message });
         setIsSubmitting(false);
