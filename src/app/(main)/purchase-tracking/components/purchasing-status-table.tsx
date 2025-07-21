@@ -218,11 +218,11 @@ export function PurchasingStatusTable() {
                           </div>
                       </TooltipTrigger>
                       <TooltipContent>
-                          <ul className="list-disc list-inside">
+                          <ul className="list-disc list-inside p-2 space-y-1">
                               {order.items.map((i, index) => (
                                   <li key={index}>
-                                      {i.quantity}{i.unit} x {getMaterialName(i.materialId)}
-                                      {i.note && <span className="text-muted-foreground italic"> - {i.note}</span>}
+                                      <span>{i.quantity}{i.unit} x {getMaterialName(i.materialId)}</span>
+                                      {i.note && <p className="text-muted-foreground italic text-xs pl-2">- {i.note}</p>}
                                   </li>
                               ))}
                           </ul>
