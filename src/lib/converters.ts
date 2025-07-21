@@ -6,7 +6,7 @@ import {
   FieldValue,
   deleteField,
 } from 'firebase/firestore';
-import type { Material, Drink, Order, PurchaseCategory, PurchaseOrder } from './types';
+import type { Material, Drink, Order, PurchaseCategory, PurchaseOrder, PurchaseOrderItem } from './types';
 
 export const materialConverter: FirestoreDataConverter<Material> = {
   toFirestore(material: Material): DocumentData {
@@ -93,15 +93,21 @@ export const purchaseOrderConverter: FirestoreDataConverter<PurchaseOrder> = {
     // We don't want to write the id field to the document
     const { id, ...data } = purchaseOrder as PurchaseOrder;
 
+    const dataToSave: any = { ...data };
+
+    // Sanitize items: ensure notes are strings and not undefined
+    dataToSave.items = dataToSave.items.map((item: PurchaseOrderItem) => ({
+        ...item,
+        note: item.note || '',
+    }));
+    
     // Handle the case where receivedAt is explicitly set to undefined,
     // which happens when we use deleteField().
-    if ('receivedAt' in data && data.receivedAt === undefined) {
-      const dataCopy = { ...data };
-      delete dataCopy.receivedAt;
-      return dataCopy;
+    if ('receivedAt' in dataToSave && dataToSave.receivedAt === undefined) {
+      delete dataToSave.receivedAt;
     }
     
-    return data;
+    return dataToSave;
   },
   fromFirestore(
     snapshot: QueryDocumentSnapshot,
@@ -110,7 +116,10 @@ export const purchaseOrderConverter: FirestoreDataConverter<PurchaseOrder> = {
     const data = snapshot.data(options);
     return {
       id: snapshot.id,
-      items: data.items,
+      items: data.items.map((item: any) => ({
+        ...item,
+        note: item.note || '',
+      })),
       status: data.status,
       category: data.category,
       location: data.location,

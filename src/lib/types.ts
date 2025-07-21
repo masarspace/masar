@@ -41,6 +41,7 @@ export type PurchaseOrderItem = {
   quantity: number;
   unit: Material['unit'];
   price: number; // Price per unit
+  note?: string;
 };
 
 export type PurchaseOrder = {
