@@ -1,25 +1,26 @@
-import { PurchasingStatusTable } from './components/purchasing-status-table';
-import { Truck } from 'lucide-react';
+
+import { NewPurchaseOrderForm } from '../purchase-orders/components/new-purchase-order-form';
+import { ClipboardList } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 
 export default function PurchasingStatusPage() {
   return (
     <div className="flex flex-col gap-8 h-full p-4 sm:p-6 lg:p-8">
-      <div>
+       <div>
         <h1 className="text-3xl font-bold tracking-tight flex items-center gap-2">
-          <Truck className="w-8 h-8" /> Purchasing Status
+          <ClipboardList className="w-8 h-8" /> New Purchase Order
         </h1>
         <p className="text-muted-foreground">
-          Track and manage all your ongoing and completed purchase orders.
+          Create a new order to replenish your material inventory.
         </p>
       </div>
-      <Card className="flex-1">
+      <Card>
         <CardHeader>
-            <CardTitle>All Purchase Orders</CardTitle>
-            <CardDescription>A list of all purchase orders and their current status.</CardDescription>
+            <CardTitle>Create Purchase Order</CardTitle>
+            <CardDescription>Select materials and specify quantities to order.</CardDescription>
         </CardHeader>
         <CardContent>
-            <PurchasingStatusTable />
+            <NewPurchaseOrderForm />
         </CardContent>
       </Card>
     </div>

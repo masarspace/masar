@@ -1,3 +1,4 @@
+
 import { NewPurchaseOrderForm } from './components/new-purchase-order-form';
 import { ClipboardList } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -13,7 +14,7 @@ export default function PurchaseOrdersPage() {
           Create a new order to replenish your material inventory.
         </p>
       </div>
-      <Card className="flex-1">
+      <Card>
         <CardHeader>
             <CardTitle>Create Purchase Order</CardTitle>
             <CardDescription>Select materials and specify quantities to order.</CardDescription>

@@ -132,13 +132,13 @@ export default function MainLayout({
                       <SidebarMenuItem>
                         <SidebarMenuButton
                           asChild
-                          href="/purchasing-status"
-                          isActive={pathname.startsWith("/purchasing-status")}
-                          tooltip="Purchase Status"
+                          href="/purchase-tracking"
+                          isActive={pathname.startsWith("/purchase-tracking")}
+                          tooltip="Purchase Tracking"
                         >
-                          <Link href="/purchasing-status">
+                          <Link href="/purchase-tracking">
                             <Truck />
-                            <span>Purchase Status</span>
+                            <span>Purchase Tracking</span>
                           </Link>
                         </SidebarMenuButton>
                       </SidebarMenuItem>
@@ -162,7 +162,7 @@ export default function MainLayout({
           </SidebarContent>
         </Sidebar>
         <SidebarInset>
-          <main className="flex-1 flex flex-col p-4 sm:p-6 lg:p-8">{children}</main>
+          <main className="flex-1">{children}</main>
         </SidebarInset>
       </div>
     </SidebarProvider>
