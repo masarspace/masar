@@ -117,7 +117,6 @@ export function OrdersTable() {
             const stockToReturn = stockToReturnByMaterialId.get(materialId) || 0;
             
             if (!materialDoc || !materialDoc.exists()) {
-                // It's possible the material was deleted, so we just log a warning and continue
                 console.warn(`Material with ID ${materialId} not found during deletion. Stock not returned.`);
                 continue;
             }
@@ -132,11 +131,54 @@ export function OrdersTable() {
       } catch (error: any) {
         toast({ variant: "destructive", title: "Error deleting order", description: error.message });
       }
-    } else { // Order is already cancelled, just delete it
+    } else { 
       await deleteDoc(doc(db, 'orders', order.id));
       toast({ title: "Order deleted."});
     }
   };
+
+  const handleUpdateStatus = async (order: Order, newStatus: 'Completed' | 'Cancelled') => {
+    if (newStatus === 'Cancelled') {
+        try {
+            await runTransaction(db, async (transaction) => {
+                const stockToReturnByMaterialId = new Map<string, number>();
+                order.items.forEach(item => {
+                    const drink = allDrinks.find(d => d.id === item.drinkId);
+                    if (drink) {
+                        drink.recipe.forEach(recipeItem => {
+                            const currentStock = stockToReturnByMaterialId.get(recipeItem.materialId) || 0;
+                            stockToReturnByMaterialId.set(recipeItem.materialId, currentStock + (recipeItem.quantity * item.quantity));
+                        });
+                    }
+                });
+
+                const materialIds = Array.from(stockToReturnByMaterialId.keys());
+                const materialRefs = materialIds.map(id => doc(db, 'materials', id).withConverter(materialConverter));
+                const materialDocs = await Promise.all(materialRefs.map(ref => transaction.get(ref)));
+
+                for (let i = 0; i < materialDocs.length; i++) {
+                    const materialDoc = materialDocs[i];
+                    const materialId = materialIds[i];
+                    const stockToReturn = stockToReturnByMaterialId.get(materialId) || 0;
+                    if (!materialDoc.exists()) {
+                        throw new Error(`Material ${materialId} not found.`);
+                    }
+                    const newStock = materialDoc.data().stock + stockToReturn;
+                    transaction.update(materialRefs[i], { stock: newStock });
+                }
+
+                transaction.update(doc(db, 'orders', order.id), { status: 'Cancelled' });
+            });
+            toast({ title: "Order cancelled and stock restored." });
+        } catch (error: any) {
+            toast({ variant: "destructive", title: "Error cancelling order", description: error.message });
+        }
+    } else { // newStatus is 'Completed'
+        await updateDoc(doc(db, 'orders', order.id), { status: 'Completed' });
+        toast({ title: "Order marked as completed." });
+    }
+  };
+
 
   const handleItemChange = (drinkId: string, checked: boolean | 'indeterminate') => {
     if (checked) {
@@ -172,11 +214,9 @@ export function OrdersTable() {
                 const orderDocRef = doc(db, 'orders', selectedOrder.id);
                 const oldStatus = selectedOrder.status;
 
-                // Calculate stock changes based on difference between old and new items/status
                 const stockChanges = new Map<string, number>();
                 
-                // Helper to process items and update stockChanges map
-                const processItems = (items: OrderItem[], factor: 1 | -1) => { // 1 for adding back, -1 for deducting
+                const processItems = (items: OrderItem[], factor: 1 | -1) => {
                     for (const item of items) {
                         const drink = allDrinks.find(d => d.id === item.drinkId);
                         if (drink) {
@@ -188,29 +228,20 @@ export function OrdersTable() {
                     }
                 };
 
-                // Logic for stock changes based on status transition
                 if (oldStatus !== 'Cancelled' && newStatus === 'Cancelled') {
-                    // Order is being cancelled -> return stock of old items
                     processItems(selectedOrder.items, 1);
                 } else if (oldStatus === 'Cancelled' && newStatus !== 'Cancelled') {
-                    // Order is being un-cancelled -> deduct stock of new items
                     processItems(itemsToSave, -1);
                 } else if (oldStatus !== 'Cancelled' && newStatus !== 'Cancelled') {
-                    // Standard edit (Pending -> Pending, Pending -> Completed, Completed -> Pending, etc.)
-                    // Add back old item stock
                     processItems(selectedOrder.items, 1);
-                    // Deduct new item stock
                     processItems(itemsToSave, -1);
                 }
-                // If oldStatus === 'Cancelled' and newStatus === 'Cancelled', no stock change.
 
                 const materialIds = Array.from(stockChanges.keys());
                 if (materialIds.length > 0) {
-                    // 1. READ all required documents
                     const materialRefs = materialIds.map(id => doc(db, 'materials', id).withConverter(materialConverter));
                     const materialDocs = await Promise.all(materialRefs.map(ref => transaction.get(ref)));
                     
-                    // 2. WRITE all updates
                     for(let i = 0; i < materialDocs.length; i++) {
                         const materialDoc = materialDocs[i];
                         const materialId = materialIds[i];
@@ -235,7 +266,7 @@ export function OrdersTable() {
         }
 
     } else {
-        // Creating a new order (always starts as 'Pending')
+        // Creating a new order
         try {
             await runTransaction(db, async (transaction) => {
                 const materialStockDeltas = new Map<string, number>();
@@ -251,15 +282,13 @@ export function OrdersTable() {
                 }
                 
                 const materialIds = Array.from(materialStockDeltas.keys());
-                if(materialIds.length === 0) { // Should not happen with check above, but for safety
+                if(materialIds.length === 0) {
                     throw new Error("No items in order to create.");
                 }
 
-                // 1. READ all material documents
                 const materialRefs = materialIds.map(id => doc(db, 'materials', id).withConverter(materialConverter));
                 const materialDocs = await Promise.all(materialRefs.map(ref => transaction.get(ref)));
                 
-                // Perform checks after reads
                 for (let i = 0; i < materialDocs.length; i++) {
                     const materialDoc = materialDocs[i];
                     const materialId = materialIds[i];
@@ -273,7 +302,6 @@ export function OrdersTable() {
                     }
                 }
 
-                // 2. WRITE all updates
                 for (let i = 0; i < materialDocs.length; i++) {
                     const materialDoc = materialDocs[i];
                     const materialId = materialIds[i];
@@ -400,7 +428,20 @@ export function OrdersTable() {
                       </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
-                       <DropdownMenuItem onClick={() => handleEditClick(order)}>
+                       {order.status === 'Pending' && (
+                        <>
+                            <DropdownMenuItem onClick={() => handleUpdateStatus(order, 'Completed')}>
+                                <CheckCircle className="mr-2 h-4 w-4 text-green-500" />
+                                Mark as Completed
+                            </DropdownMenuItem>
+                            <DropdownMenuItem onClick={() => handleUpdateStatus(order, 'Cancelled')} className="text-destructive">
+                                <XCircle className="mr-2 h-4 w-4" />
+                                Mark as Cancelled
+                            </DropdownMenuItem>
+                            <DropdownMenuSeparator />
+                        </>
+                       )}
+                       <DropdownMenuItem onClick={() => handleEditClick(order)} disabled={order.status === 'Cancelled'}>
                         <Edit className="mr-2 h-4 w-4" /> Edit
                       </DropdownMenuItem>
                       <DropdownMenuItem onClick={() => handleDeleteClick(order)} className="text-destructive">
