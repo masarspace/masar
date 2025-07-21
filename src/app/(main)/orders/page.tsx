@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 
 export default function OrdersPage() {
   return (
-    <div className="flex flex-col gap-8">
+    <div className="flex flex-col gap-8 h-full p-4 sm:p-6 lg:p-8">
       <div>
         <h1 className="text-3xl font-bold tracking-tight flex items-center gap-2">
           <ShoppingCart className="w-8 h-8" /> Order Tracking
@@ -13,7 +13,7 @@ export default function OrdersPage() {
           Manage customer orders for your buffet drinks.
         </p>
       </div>
-      <Card>
+      <Card className="flex-1">
         <CardHeader>
           <CardTitle>All Orders</CardTitle>
           <CardDescription>A list of all customer orders.</CardDescription>
