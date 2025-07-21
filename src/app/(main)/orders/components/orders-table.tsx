@@ -91,12 +91,10 @@ export function OrdersTable() {
           });
 
           // 1. READ all necessary documents first
-          const materialRefs = Array.from(materialIdsToUpdate).map(id => doc(db, 'materials', id).withConverter(materialConverter));
-          const materialDocs = await Promise.all(materialRefs.map(ref => transaction.get(ref)));
-          const materialMap = new Map(materialDocs.map(d => [d.id, d.data()]));
-
+          const materialRefs = Array.from(materialIdsToUpdate).map(id => doc(db, 'materials', id));
+          const materialDocs = await Promise.all(materialRefs.map(ref => transaction.get(ref.withConverter(materialConverter))));
+          
           const stockToReturnByMaterialId = new Map<string, number>();
-
           for (const item of order.items) {
             const drink = allDrinks.find(d => d.id === item.drinkId);
             if (drink) {
@@ -117,7 +115,7 @@ export function OrdersTable() {
             if (!materialDoc || !materialDoc.exists()) {
                 throw new Error(`Material with ID ${materialId} not found during deletion.`);
             }
-            const newStock = materialDoc.data().stock + stockToReturn;
+            const newStock = materialDoc.data()!.stock + stockToReturn;
             transaction.update(materialDoc.ref, { stock: newStock });
           }
 
@@ -196,9 +194,9 @@ export function OrdersTable() {
                     
                     if (!materialDoc.exists()) throw new Error(`Material with ID ${materialId} not found.`);
                     
-                    const newStock = materialDoc.data().stock + change;
+                    const newStock = materialDoc.data()!.stock + change;
                     if (newStock < 0) {
-                        throw new Error(`Insufficient stock for ${materialDoc.data().name}.`);
+                        throw new Error(`Insufficient stock for ${materialDoc.data()!.name}.`);
                     }
                     transaction.update(materialRefs[i], { stock: newStock });
                 }
@@ -245,8 +243,8 @@ export function OrdersTable() {
                         throw new Error(`Material with ID ${materialId} not found.`);
                     }
                     const requiredStock = materialStockDeltas.get(materialId)!;
-                    if (materialDoc.data().stock < requiredStock) {
-                        throw new Error(`Insufficient stock for ${materialDoc.data().name}.`);
+                    if (materialDoc.data()!.stock < requiredStock) {
+                        throw new Error(`Insufficient stock for ${materialDoc.data()!.name}.`);
                     }
                 }
 
@@ -255,7 +253,7 @@ export function OrdersTable() {
                     const materialDoc = materialDocs[i];
                     const materialId = materialIds[i];
                     const requiredStock = materialStockDeltas.get(materialId)!;
-                    transaction.update(materialRefs[i], { stock: materialDoc.data().stock - requiredStock });
+                    transaction.update(materialRefs[i], { stock: materialDoc.data()!.stock - requiredStock });
                 }
 
                 const newOrderRef = doc(collection(db, 'orders'));
@@ -292,20 +290,19 @@ export function OrdersTable() {
                 });
 
                 // 1. READ all documents
-                const materialRefs = Array.from(materialIdsToUpdate).map(id => doc(db, 'materials', id).withConverter(materialConverter));
-                const materialDocs = await Promise.all(materialRefs.map(ref => transaction.get(ref)));
-                const materialMap = new Map(materialDocs.map(d => [d.id, d.data()]));
+                const materialRefs = Array.from(materialIdsToUpdate).map(id => doc(db, 'materials', id));
+                const materialDocs = await Promise.all(materialRefs.map(ref => transaction.get(ref.withConverter(materialConverter))));
 
                 // 2. WRITE all updates
                 for (const item of order.items) {
                     const drink = allDrinks.find(d => d.id === item.drinkId);
                     if (drink) {
                         for (const recipeItem of drink.recipe) {
-                            const materialData = materialMap.get(recipeItem.materialId);
-                            if (!materialData) throw new Error(`Material ${recipeItem.materialId} not found.`);
+                             const materialDoc = materialDocs.find(d => d.id === recipeItem.materialId);
+                             if (!materialDoc || !materialDoc.exists()) throw new Error(`Material ${recipeItem.materialId} not found.`);
                             const stockToReturn = recipeItem.quantity * item.quantity;
                             const materialRef = doc(db, 'materials', recipeItem.materialId);
-                            transaction.update(materialRef, { stock: materialData.stock + stockToReturn });
+                            transaction.update(materialRef, { stock: materialDoc.data()!.stock + stockToReturn });
                         }
                     }
                 }
@@ -435,7 +432,7 @@ export function OrdersTable() {
                           <DropdownMenuSeparator />
                         </>
                       )}
-                      <DropdownMenuItem onClick={() => handleEditClick(order)} disabled={order.status !== 'Pending'}>
+                      <DropdownMenuItem onClick={() => handleEditClick(order)} disabled={order.status === 'Cancelled'}>
                         <Edit className="mr-2 h-4 w-4" /> Edit
                       </DropdownMenuItem>
                       <DropdownMenuItem onClick={() => handleDeleteClick(order)} className="text-destructive">
