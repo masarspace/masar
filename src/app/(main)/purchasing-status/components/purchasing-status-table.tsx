@@ -69,16 +69,21 @@ export function PurchasingStatusTable() {
             const orderRef = doc(db, 'purchaseOrders', orderId);
             const orderDoc = await transaction.get(orderRef.withConverter(purchaseOrderConverter));
             if (!orderDoc.exists()) throw new Error("Purchase order not found.");
+            
             const orderData = orderDoc.data();
+            const oldStatus = orderData.status;
+
+            // Do nothing if status is not changing
+            if (oldStatus === newStatus) return;
             
             let updateData: Partial<PurchaseOrder> = { status: newStatus };
 
             // When order is completed, add stock to materials
-            if (newStatus === 'Completed' && orderData.status !== 'Completed') {
+            if (newStatus === 'Completed' && oldStatus !== 'Completed') {
                 updateData.receivedAt = new Date().toISOString();
                 for (const item of orderData.items) {
-                    const materialRef = doc(db, 'materials', item.materialId);
-                    const materialDoc = await transaction.get(materialRef.withConverter(materialConverter));
+                    const materialRef = doc(db, 'materials', item.materialId).withConverter(materialConverter);
+                    const materialDoc = await transaction.get(materialRef);
                     if(!materialDoc.exists()) throw new Error(`Material ${getMaterialName(item.materialId)} not found.`);
 
                     const newStock = materialDoc.data().stock + item.quantity;
@@ -86,12 +91,12 @@ export function PurchasingStatusTable() {
                 }
             }
 
-            // When order is moved from completed back to something else, remove stock
-            if (orderData.status === 'Completed' && newStatus !== 'Completed') {
-                updateData.receivedAt = undefined;
+            // When order is moved FROM completed back to something else, REMOVE stock
+            if (oldStatus === 'Completed' && newStatus !== 'Completed') {
+                updateData.receivedAt = undefined; // Use undefined to remove field
                 for (const item of orderData.items) {
-                    const materialRef = doc(db, 'materials', item.materialId);
-                    const materialDoc = await transaction.get(materialRef.withConverter(materialConverter));
+                    const materialRef = doc(db, 'materials', item.materialId).withConverter(materialConverter);
+                    const materialDoc = await transaction.get(materialRef);
                     if(!materialDoc.exists()) throw new Error(`Material ${getMaterialName(item.materialId)} not found.`);
                     
                     const newStock = materialDoc.data().stock - item.quantity;
@@ -99,7 +104,8 @@ export function PurchasingStatusTable() {
                     transaction.update(materialRef, { stock: newStock });
                 }
             }
-
+            
+            // Use specific fields for update to avoid overwriting unrelated data
             transaction.update(orderRef, updateData);
         });
         toast({ title: `Order status updated to ${newStatus}.`});
