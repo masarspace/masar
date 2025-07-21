@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 
 export default function DrinksPage() {
   return (
-    <div className="flex flex-col gap-8">
+    <div className="flex flex-col gap-8 h-full">
       <div>
         <h1 className="text-3xl font-bold tracking-tight flex items-center gap-2">
           <GlassWater className="w-8 h-8" /> Drink Recipes
@@ -13,7 +13,7 @@ export default function DrinksPage() {
           Define and manage the drink recipes available at your buffet.
         </p>
       </div>
-      <Card>
+      <Card className="flex-1">
         <CardHeader>
           <CardTitle>Drink Menu</CardTitle>
           <CardDescription>A list of all drinks and their recipes.</CardDescription>
