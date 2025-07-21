@@ -1,10 +1,11 @@
+
 "use client";
 
 import * as React from 'react';
 import { useCollection } from 'react-firebase-hooks/firestore';
-import { collection, addDoc, doc, updateDoc, deleteDoc } from 'firebase/firestore';
+import { collection, addDoc, doc, updateDoc, deleteDoc, writeBatch } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import { orderConverter, drinkConverter } from '@/lib/converters';
+import { orderConverter, drinkConverter, materialConverter } from '@/lib/converters';
 import {
   Table,
   TableBody,
@@ -18,6 +19,7 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
+  DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu';
 import {
   Sheet,
@@ -26,25 +28,29 @@ import {
   SheetTitle,
   SheetDescription,
   SheetFooter,
-  SheetClose,
 } from '@/components/ui/sheet';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { MoreHorizontal, PlusCircle, Edit, Trash2 } from 'lucide-react';
-import type { Order, OrderItem, Drink } from '@/lib/types';
+import { MoreHorizontal, PlusCircle, Edit, Trash2, CheckCircle, XCircle } from 'lucide-react';
+import type { Order, OrderItem, Drink, Material } from '@/lib/types';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
 import { Checkbox } from '@/components/ui/checkbox';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Skeleton } from '@/components/ui/skeleton';
+import { useToast } from "@/hooks/use-toast";
 
 export function OrdersTable() {
   const [ordersSnapshot, ordersLoading] = useCollection(collection(db, 'orders').withConverter(orderConverter));
   const [drinksSnapshot, drinksLoading] = useCollection(collection(db, 'drinks').withConverter(drinkConverter));
+  const [materialsSnapshot, materialsLoading] = useCollection(collection(db, 'materials').withConverter(materialConverter));
+
+  const { toast } = useToast();
 
   const orders = ordersSnapshot?.docs.map(doc => doc.data()).sort((a,b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()) ?? [];
   const allDrinks = drinksSnapshot?.docs.map(doc => doc.data()) ?? [];
+  const allMaterials = materialsSnapshot?.docs.map(doc => doc.data()) ?? [];
 
   const [isSheetOpen, setIsSheetOpen] = React.useState(false);
   const [selectedOrder, setSelectedOrder] = React.useState<Order | null>(null);
@@ -89,21 +95,86 @@ export function OrdersTable() {
   const handleFormSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const formData = new FormData(e.currentTarget);
+
+    const itemsToSave = orderItems.filter(i => i.quantity > 0);
+    
+    // Check for sufficient stock before creating/updating order
+    for (const item of itemsToSave) {
+        const drink = allDrinks.find(d => d.id === item.drinkId);
+        if (drink) {
+            for (const recipeItem of drink.recipe) {
+                const material = allMaterials.find(m => m.id === recipeItem.materialId);
+                const requiredStock = recipeItem.quantity * item.quantity;
+                if (!material || material.stock < requiredStock) {
+                    toast({
+                        variant: "destructive",
+                        title: "Insufficient stock",
+                        description: `Not enough ${material?.name || 'ingredient'} to make ${item.quantity} of ${drink.name}.`,
+                    });
+                    return;
+                }
+            }
+        }
+    }
+
     const orderData: Omit<Order, 'id'> = {
         status: (formData.get('status') as Order['status']) || 'Pending',
         createdAt: selectedOrder ? selectedOrder.createdAt : new Date().toISOString(),
-        items: orderItems.filter(i => i.quantity > 0),
+        items: itemsToSave,
     };
 
     if (selectedOrder) {
+        // We don't deduct stock on edit, only on creation and completion.
         const orderDocRef = doc(db, 'orders', selectedOrder.id);
         await updateDoc(orderDocRef, orderData);
     } else {
-        await addDoc(collection(db, 'orders').withConverter(orderConverter), orderData);
+        const newOrderRef = await addDoc(collection(db, 'orders').withConverter(orderConverter), orderData);
+        // Deduct stock for new pending order
+        const batch = writeBatch(db);
+        for (const item of itemsToSave) {
+            const drink = allDrinks.find(d => d.id === item.drinkId);
+            if (drink) {
+                for (const recipeItem of drink.recipe) {
+                    const material = allMaterials.find(m => m.id === recipeItem.materialId);
+                    if(material) {
+                        const materialRef = doc(db, 'materials', material.id);
+                        const requiredStock = recipeItem.quantity * item.quantity;
+                        batch.update(materialRef, { stock: material.stock - requiredStock });
+                    }
+                }
+            }
+        }
+        await batch.commit();
     }
     setIsSheetOpen(false);
     setSelectedOrder(null);
   }
+
+  const handleUpdateStatus = async (order: Order, newStatus: 'Completed' | 'Cancelled') => {
+    if (!order) return;
+    const orderDocRef = doc(db, 'orders', order.id);
+    
+    if (newStatus === 'Cancelled') {
+         // Add stock back if order is cancelled
+        const batch = writeBatch(db);
+        for (const item of order.items) {
+            const drink = allDrinks.find(d => d.id === item.drinkId);
+            if (drink) {
+                for (const recipeItem of drink.recipe) {
+                    const material = allMaterials.find(m => m.id === recipeItem.materialId);
+                    if(material) {
+                        const materialRef = doc(db, 'materials', material.id);
+                        const stockToReturn = recipeItem.quantity * item.quantity;
+                        batch.update(materialRef, { stock: material.stock + stockToReturn });
+                    }
+                }
+            }
+        }
+        await batch.commit();
+    }
+    
+    await updateDoc(orderDocRef, { status: newStatus });
+  };
 
   const getDrinkName = (id: string) => allDrinks.find(d => d.id === id)?.name || 'Unknown';
 
@@ -114,7 +185,24 @@ export function OrdersTable() {
     }, 0);
   }
 
-  if (ordersLoading || drinksLoading) {
+  const formatOrderDate = (isoString: string) => {
+    try {
+      return new Intl.DateTimeFormat('en-EG', {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit',
+        hour12: true,
+        timeZone: 'Africa/Cairo',
+      }).format(new Date(isoString));
+    } catch (e) {
+      return new Date(isoString).toLocaleDateString(); // Fallback
+    }
+  }
+
+
+  if (ordersLoading || drinksLoading || materialsLoading) {
      return (
        <div className="space-y-4">
         <div className="flex justify-end">
@@ -136,7 +224,7 @@ export function OrdersTable() {
               {[...Array(5)].map((_, i) => (
                 <TableRow key={i}>
                   <TableCell><Skeleton className="h-5 w-24" /></TableCell>
-                  <TableCell><Skeleton className="h-5 w-24" /></TableCell>
+                  <TableCell><Skeleton className="h-5 w-36" /></TableCell>
                   <TableCell><Skeleton className="h-5 w-48" /></TableCell>
                   <TableCell><Skeleton className="h-5 w-16" /></TableCell>
                   <TableCell><Skeleton className="h-6 w-20 rounded-full" /></TableCell>
@@ -171,7 +259,7 @@ export function OrdersTable() {
             {orders.map((order) => (
               <TableRow key={order.id}>
                 <TableCell className="font-mono text-xs">{order.id}</TableCell>
-                <TableCell>{new Date(order.createdAt).toLocaleDateString()}</TableCell>
+                <TableCell>{formatOrderDate(order.createdAt)}</TableCell>
                 <TableCell>
                   {order.items.map(i => `${i.quantity}x ${getDrinkName(i.drinkId)}`).join(', ')}
                 </TableCell>
@@ -189,6 +277,17 @@ export function OrdersTable() {
                       </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
+                      {order.status === 'Pending' && (
+                        <>
+                          <DropdownMenuItem onClick={() => handleUpdateStatus(order, 'Completed')}>
+                            <CheckCircle className="mr-2 h-4 w-4" /> Mark as Completed
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => handleUpdateStatus(order, 'Cancelled')} className="text-destructive">
+                             <XCircle className="mr-2 h-4 w-4" /> Mark as Cancelled
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator />
+                        </>
+                      )}
                       <DropdownMenuItem onClick={() => handleEditClick(order)}>
                         <Edit className="mr-2 h-4 w-4" /> Edit
                       </DropdownMenuItem>
@@ -216,7 +315,7 @@ export function OrdersTable() {
               {selectedOrder && (
                  <div className="grid grid-cols-4 items-center gap-4">
                     <Label htmlFor="status" className="text-right">Status</Label>
-                    <Select name="status" defaultValue={selectedOrder.status}>
+                    <Select name="status" defaultValue={selectedOrder.status} disabled>
                         <SelectTrigger className="col-span-3">
                         <SelectValue placeholder="Set status" />
                         </SelectTrigger>
