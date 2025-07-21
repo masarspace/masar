@@ -3,7 +3,7 @@
 
 import * as React from 'react';
 import { useCollection } from 'react-firebase-hooks/firestore';
-import { collection, doc, runTransaction, query, orderBy, deleteField } from 'firebase/firestore';
+import { collection, doc, runTransaction, query, orderBy, deleteField, writeBatch } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { purchaseOrderConverter, materialConverter } from '@/lib/converters';
 import {
@@ -77,39 +77,34 @@ export function PurchasingStatusTable() {
             const oldStatus = orderData.status;
 
             if (oldStatus === newStatus) return;
-            
-            const updateData: any = { status: newStatus };
-            const materialUpdates = new Map<string, {ref: any, newStock: number}>();
+
+            // Step 1: Read all necessary data
+            const materialDocsPromises = orderData.items.map(item => 
+                transaction.get(doc(db, 'materials', item.materialId).withConverter(materialConverter))
+            );
+            const materialDocs = await Promise.all(materialDocsPromises);
+
+            // Step 2: Prepare updates based on logic
+            const poUpdateData: any = { status: newStatus };
+            const materialUpdates = new Map<string, number>(); // materialId -> newStock
 
             // When order is COMPLETED, add stock to materials
             if (newStatus === 'Completed' && oldStatus !== 'Completed') {
-                updateData.receivedAt = new Date().toISOString();
+                poUpdateData.receivedAt = new Date().toISOString();
 
-                // READ all material docs first
-                const materialDocs = await Promise.all(orderData.items.map(item => 
-                    transaction.get(doc(db, 'materials', item.materialId).withConverter(materialConverter))
-                ));
-
-                // PREPARE updates
                 for (let i = 0; i < orderData.items.length; i++) {
                     const item = orderData.items[i];
                     const materialDoc = materialDocs[i];
                     if(!materialDoc.exists()) throw new Error(`Material ${getMaterialName(item.materialId)} not found.`);
                     
                     const newStock = materialDoc.data().stock + item.quantity;
-                    materialUpdates.set(item.materialId, { ref: materialDoc.ref, newStock });
+                    materialUpdates.set(item.materialId, newStock);
                 }
             }
             // When order is moved FROM completed, REMOVE stock
             else if (oldStatus === 'Completed' && newStatus !== 'Completed') {
-                updateData.receivedAt = deleteField();
+                poUpdateData.receivedAt = deleteField();
 
-                // READ all material docs first
-                const materialDocs = await Promise.all(orderData.items.map(item => 
-                    transaction.get(doc(db, 'materials', item.materialId).withConverter(materialConverter))
-                ));
-
-                // PREPARE updates
                 for (let i = 0; i < orderData.items.length; i++) {
                     const item = orderData.items[i];
                     const materialDoc = materialDocs[i];
@@ -117,14 +112,15 @@ export function PurchasingStatusTable() {
                     
                     const newStock = materialDoc.data().stock - item.quantity;
                     if (newStock < 0) throw new Error(`Cannot reverse order, insufficient stock for ${materialDoc.data().name}.`);
-                    materialUpdates.set(item.materialId, { ref: materialDoc.ref, newStock });
+                    materialUpdates.set(item.materialId, newStock);
                 }
             }
             
-            // WRITE all updates at the end
-            transaction.update(orderRef, updateData);
-            for (const { ref, newStock } of materialUpdates.values()) {
-                transaction.update(ref, { stock: newStock });
+            // Step 3: Write all updates at the end
+            transaction.update(orderRef, poUpdateData);
+            for (const [materialId, newStock] of materialUpdates.entries()) {
+                const materialRef = doc(db, 'materials', materialId);
+                transaction.update(materialRef, { stock: newStock });
             }
         });
         toast({ title: `Order status updated to ${newStatus}.`});
@@ -132,6 +128,7 @@ export function PurchasingStatusTable() {
         toast({ variant: "destructive", title: "Error updating status", description: error.message });
      }
   };
+
 
   const getOrderTotal = (items: PurchaseOrder['items']) => {
     return items.reduce((total, item) => total + (item.price * item.quantity), 0);
@@ -178,7 +175,7 @@ export function PurchasingStatusTable() {
         <TableHeader>
           <TableRow>
             <TableHead className="hidden lg:table-cell">Order ID</TableHead>
-            <TableHead>Created</TableHead>
+            <TableHead>Details</TableHead>
             <TableHead>Received</TableHead>
             <TableHead>Items</TableHead>
             <TableHead className="hidden md:table-cell">Total</TableHead>
