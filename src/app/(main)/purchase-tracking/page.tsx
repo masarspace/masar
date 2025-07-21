@@ -1,5 +1,5 @@
 
-import { PurchasingStatusTable } from '../purchasing-status/components/purchasing-status-table';
+import { PurchasingStatusTable } from './components/purchasing-status-table';
 import { Truck } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 
@@ -14,7 +14,7 @@ export default function PurchaseTrackingPage() {
           Track and manage all your ongoing and completed purchase orders.
         </p>
       </div>
-      <Card>
+      <Card className="flex-1">
         <CardHeader>
             <CardTitle>All Purchase Orders</CardTitle>
             <CardDescription>A list of all purchase orders and their current status.</CardDescription>

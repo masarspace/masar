@@ -60,7 +60,7 @@ export function PurchasingStatusTable() {
   const allMaterials = React.useMemo(() => materialsSnapshot?.docs.map(doc => doc.data()) ?? [], [materialsSnapshot]);
   const allCategories = React.useMemo(() => categoriesSnapshot?.docs.map(doc => doc.data()) ?? [], [categoriesSnapshot]);
   
-  const getMaterialName = (id: string) => allMaterials.find(m => m.id === id)?.name || 'Unknown';
+  const getMaterialName = React.useCallback((id: string) => allMaterials.find(m => m.id === id)?.name || 'Unknown', [allMaterials]);
 
   const purchaseOrders = React.useMemo(() => {
     let baseOrders = purchaseOrdersSnapshot?.docs.map(doc => doc.data()) ?? [];
@@ -87,7 +87,7 @@ export function PurchasingStatusTable() {
     }
     
     return baseOrders;
-  }, [purchaseOrdersSnapshot, searchTerm, dateRange, categoryFilter, allMaterials]);
+  }, [purchaseOrdersSnapshot, searchTerm, dateRange, categoryFilter, getMaterialName]);
 
   const [formattedDates, setFormattedDates] = React.useState<Map<string, {createdAt: string, receivedAt?: string}>>(new Map());
   
@@ -267,7 +267,7 @@ export function PurchasingStatusTable() {
                 ))}
             </SelectContent>
         </Select>
-        {(dateRange || categoryFilter !== 'all') && <Button variant="ghost" onClick={() => { setDateRange(undefined); setCategoryFilter('all'); }}>Clear Filters</Button>}
+        {(dateRange || categoryFilter !== 'all') && <Button variant="ghost" onClick={() => { setSearchTerm(''); setDateRange(undefined); setCategoryFilter('all'); }}>Clear Filters</Button>}
     </div>
       <div className="rounded-md border">
         <Table>
