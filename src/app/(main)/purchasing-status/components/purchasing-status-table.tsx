@@ -68,44 +68,64 @@ export function PurchasingStatusTable() {
         await runTransaction(db, async (transaction) => {
             const orderRef = doc(db, 'purchaseOrders', orderId);
             const orderDoc = await transaction.get(orderRef.withConverter(purchaseOrderConverter));
-            if (!orderDoc.exists()) throw new Error("Purchase order not found.");
+
+            if (!orderDoc.exists()) {
+                throw new Error("Purchase order not found.");
+            }
             
             const orderData = orderDoc.data();
             const oldStatus = orderData.status;
 
-            // Do nothing if status is not changing
             if (oldStatus === newStatus) return;
             
-            let updateData: any = { status: newStatus };
+            const updateData: any = { status: newStatus };
+            const materialUpdates = new Map<string, {ref: any, newStock: number}>();
 
-            // When order is completed, add stock to materials
+            // When order is COMPLETED, add stock to materials
             if (newStatus === 'Completed' && oldStatus !== 'Completed') {
                 updateData.receivedAt = new Date().toISOString();
-                for (const item of orderData.items) {
-                    const materialRef = doc(db, 'materials', item.materialId).withConverter(materialConverter);
-                    const materialDoc = await transaction.get(materialRef);
-                    if(!materialDoc.exists()) throw new Error(`Material ${getMaterialName(item.materialId)} not found.`);
 
+                // READ all material docs first
+                const materialDocs = await Promise.all(orderData.items.map(item => 
+                    transaction.get(doc(db, 'materials', item.materialId).withConverter(materialConverter))
+                ));
+
+                // PREPARE updates
+                for (let i = 0; i < orderData.items.length; i++) {
+                    const item = orderData.items[i];
+                    const materialDoc = materialDocs[i];
+                    if(!materialDoc.exists()) throw new Error(`Material ${getMaterialName(item.materialId)} not found.`);
+                    
                     const newStock = materialDoc.data().stock + item.quantity;
-                    transaction.update(materialRef, { stock: newStock });
+                    materialUpdates.set(item.materialId, { ref: materialDoc.ref, newStock });
                 }
             }
-
-            // When order is moved FROM completed back to something else, REMOVE stock
-            if (oldStatus === 'Completed' && newStatus !== 'Completed') {
+            // When order is moved FROM completed, REMOVE stock
+            else if (oldStatus === 'Completed' && newStatus !== 'Completed') {
                 updateData.receivedAt = deleteField();
-                for (const item of orderData.items) {
-                    const materialRef = doc(db, 'materials', item.materialId).withConverter(materialConverter);
-                    const materialDoc = await transaction.get(materialRef);
+
+                // READ all material docs first
+                const materialDocs = await Promise.all(orderData.items.map(item => 
+                    transaction.get(doc(db, 'materials', item.materialId).withConverter(materialConverter))
+                ));
+
+                // PREPARE updates
+                for (let i = 0; i < orderData.items.length; i++) {
+                    const item = orderData.items[i];
+                    const materialDoc = materialDocs[i];
                     if(!materialDoc.exists()) throw new Error(`Material ${getMaterialName(item.materialId)} not found.`);
                     
                     const newStock = materialDoc.data().stock - item.quantity;
-                     if (newStock < 0) throw new Error(`Cannot reverse order, insufficient stock for ${materialDoc.data().name}.`);
-                    transaction.update(materialRef, { stock: newStock });
+                    if (newStock < 0) throw new Error(`Cannot reverse order, insufficient stock for ${materialDoc.data().name}.`);
+                    materialUpdates.set(item.materialId, { ref: materialDoc.ref, newStock });
                 }
             }
             
+            // WRITE all updates at the end
             transaction.update(orderRef, updateData);
+            for (const { ref, newStock } of materialUpdates.values()) {
+                transaction.update(ref, { stock: newStock });
+            }
         });
         toast({ title: `Order status updated to ${newStatus}.`});
      } catch (error: any) {
