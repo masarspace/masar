@@ -3,7 +3,7 @@
 
 import * as React from 'react';
 import { useCollection } from 'react-firebase-hooks/firestore';
-import { collection, addDoc, doc, updateDoc, deleteDoc, writeBatch } from 'firebase/firestore';
+import { collection, addDoc, doc, updateDoc, deleteDoc, writeBatch, runTransaction } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { orderConverter, drinkConverter, materialConverter } from '@/lib/converters';
 import {
@@ -71,13 +71,40 @@ export function OrdersTable() {
   };
 
   const handleEditClick = (order: Order) => {
+    if(order.status !== 'Pending') {
+      toast({
+        variant: "destructive",
+        title: "Cannot edit order",
+        description: "Only pending orders can be edited.",
+      });
+      return;
+    }
     setSelectedOrder(order);
     setIsSheetOpen(true);
   };
 
-  const handleDeleteClick = async (id: string) => {
-    if(!id) return;
-    await deleteDoc(doc(db, 'orders', id));
+  const handleDeleteClick = async (order: Order) => {
+    if(!order.id) return;
+    
+    // If order is pending, return stock before deleting
+    if(order.status === 'Pending') {
+        const batch = writeBatch(db);
+        for (const item of order.items) {
+            const drink = allDrinks.find(d => d.id === item.drinkId);
+            if (drink) {
+                for (const recipeItem of drink.recipe) {
+                    const material = allMaterials.find(m => m.id === recipeItem.materialId);
+                    if(material) {
+                        const materialRef = doc(db, 'materials', material.id);
+                        const stockToReturn = recipeItem.quantity * item.quantity;
+                        batch.update(materialRef, { stock: material.stock + stockToReturn });
+                    }
+                }
+            }
+        }
+        await batch.commit();
+    }
+    await deleteDoc(doc(db, 'orders', order.id));
   };
 
   const handleItemChange = (drinkId: string, checked: boolean | 'indeterminate') => {
@@ -94,64 +121,120 @@ export function OrdersTable() {
   
   const handleFormSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    const formData = new FormData(e.currentTarget);
-
     const itemsToSave = orderItems.filter(i => i.quantity > 0);
     
-    // Check for sufficient stock before creating/updating order
-    for (const item of itemsToSave) {
-        const drink = allDrinks.find(d => d.id === item.drinkId);
-        if (drink) {
-            for (const recipeItem of drink.recipe) {
-                const material = allMaterials.find(m => m.id === recipeItem.materialId);
-                const requiredStock = recipeItem.quantity * item.quantity;
-                if (!material || material.stock < requiredStock) {
-                    toast({
-                        variant: "destructive",
-                        title: "Insufficient stock",
-                        description: `Not enough ${material?.name || 'ingredient'} to make ${item.quantity} of ${drink.name}.`,
-                    });
-                    return;
-                }
-            }
-        }
+    if (itemsToSave.length === 0) {
+        toast({ variant: "destructive", title: "Cannot save order", description: "Please add at least one drink to the order." });
+        return;
     }
-
-    const orderData: Omit<Order, 'id'> = {
-        status: (formData.get('status') as Order['status']) || 'Pending',
-        createdAt: selectedOrder ? selectedOrder.createdAt : new Date().toISOString(),
-        items: itemsToSave,
-    };
 
     if (selectedOrder) {
-        // We don't deduct stock on edit, only on creation and completion.
-        const orderDocRef = doc(db, 'orders', selectedOrder.id);
-        await updateDoc(orderDocRef, orderData);
+        // Editing an existing order
+        try {
+            await runTransaction(db, async (transaction) => {
+                const orderDocRef = doc(db, 'orders', selectedOrder.id);
+                const currentOrderDoc = await transaction.get(orderDocRef.withConverter(orderConverter));
+                if (!currentOrderDoc.exists()) throw new Error("Order does not exist!");
+                
+                const oldItems = currentOrderDoc.data().items;
+
+                // Calculate stock changes
+                const stockChanges = new Map<string, number>();
+
+                const processItems = (items: OrderItem[], factor: 1 | -1) => {
+                    for (const item of items) {
+                        const drink = allDrinks.find(d => d.id === item.drinkId);
+                        if (drink) {
+                            for (const recipeItem of drink.recipe) {
+                                const currentChange = stockChanges.get(recipeItem.materialId) || 0;
+                                stockChanges.set(recipeItem.materialId, currentChange + recipeItem.quantity * item.quantity * factor);
+                            }
+                        }
+                    }
+                };
+
+                processItems(oldItems, 1); // Add back old item stock
+                processItems(itemsToSave, -1); // Deduct new item stock
+
+                // Check for sufficient stock and update
+                for (const [materialId, change] of stockChanges.entries()) {
+                    const materialRef = doc(db, 'materials', materialId);
+                    const materialDoc = await transaction.get(materialRef.withConverter(materialConverter));
+                    if (!materialDoc.exists()) throw new Error(`Material with ID ${materialId} not found.`);
+                    
+                    const newStock = materialDoc.data().stock + change;
+                    if (newStock < 0) {
+                        throw new Error(`Insufficient stock for ${materialDoc.data().name}.`);
+                    }
+                    transaction.update(materialRef, { stock: newStock });
+                }
+
+                transaction.update(orderDocRef, { items: itemsToSave });
+            });
+            toast({ title: "Order updated successfully!" });
+        } catch (error: any) {
+            toast({ variant: "destructive", title: "Error updating order", description: error.message });
+            return;
+        }
+
     } else {
-        const newOrderRef = await addDoc(collection(db, 'orders').withConverter(orderConverter), orderData);
-        // Deduct stock for new pending order
-        const batch = writeBatch(db);
-        for (const item of itemsToSave) {
-            const drink = allDrinks.find(d => d.id === item.drinkId);
-            if (drink) {
-                for (const recipeItem of drink.recipe) {
-                    const material = allMaterials.find(m => m.id === recipeItem.materialId);
-                    if(material) {
-                        const materialRef = doc(db, 'materials', material.id);
-                        const requiredStock = recipeItem.quantity * item.quantity;
-                        batch.update(materialRef, { stock: material.stock - requiredStock });
+        // Creating a new order
+        try {
+            await runTransaction(db, async (transaction) => {
+                const materialDocs = new Map<string, Material>();
+                 // Pre-fetch all materials to check stock
+                for (const item of itemsToSave) {
+                    const drink = allDrinks.find(d => d.id === item.drinkId);
+                    if (drink) {
+                        for (const recipeItem of drink.recipe) {
+                            if (!materialDocs.has(recipeItem.materialId)) {
+                                const materialRef = doc(db, 'materials', recipeItem.materialId);
+                                const materialDoc = await transaction.get(materialRef.withConverter(materialConverter));
+                                if (!materialDoc.exists()) throw new Error(`Material with ID ${recipeItem.materialId} not found.`);
+                                materialDocs.set(recipeItem.materialId, materialDoc.data());
+                            }
+                        }
                     }
                 }
-            }
+
+                // Check stock and apply updates
+                for (const item of itemsToSave) {
+                    const drink = allDrinks.find(d => d.id === item.drinkId);
+                    if (drink) {
+                        for (const recipeItem of drink.recipe) {
+                            const material = materialDocs.get(recipeItem.materialId)!;
+                            const requiredStock = recipeItem.quantity * item.quantity;
+                            if (material.stock < requiredStock) {
+                                throw new Error(`Insufficient stock for ${material.name}. Required: ${requiredStock}, Available: ${material.stock}`);
+                            }
+                            const materialRef = doc(db, 'materials', recipeItem.materialId);
+                            transaction.update(materialRef, { stock: material.stock - requiredStock });
+                            // Update local cache to handle multiple deductions for the same material
+                             materialDocs.set(recipeItem.materialId, { ...material, stock: material.stock - requiredStock });
+                        }
+                    }
+                }
+
+                const newOrderRef = doc(collection(db, 'orders'));
+                transaction.set(newOrderRef.withConverter(orderConverter), {
+                    status: 'Pending',
+                    createdAt: new Date().toISOString(),
+                    items: itemsToSave,
+                });
+            });
+            toast({ title: "Order created successfully!" });
+        } catch (error: any) {
+            toast({ variant: "destructive", title: "Error creating order", description: error.message });
+            return; // Important: stop execution if transaction fails
         }
-        await batch.commit();
     }
+
     setIsSheetOpen(false);
     setSelectedOrder(null);
   }
 
   const handleUpdateStatus = async (order: Order, newStatus: 'Completed' | 'Cancelled') => {
-    if (!order) return;
+    if (!order || order.status !== 'Pending') return;
     const orderDocRef = doc(db, 'orders', order.id);
     
     if (newStatus === 'Cancelled') {
@@ -165,7 +248,11 @@ export function OrdersTable() {
                     if(material) {
                         const materialRef = doc(db, 'materials', material.id);
                         const stockToReturn = recipeItem.quantity * item.quantity;
-                        batch.update(materialRef, { stock: material.stock + stockToReturn });
+                        // Use live data for material stock to avoid race conditions
+                        const currentMaterial = allMaterials.find(m => m.id === material.id);
+                        if (currentMaterial) {
+                            batch.update(materialRef, { stock: currentMaterial.stock + stockToReturn });
+                        }
                     }
                 }
             }
@@ -288,10 +375,10 @@ export function OrdersTable() {
                           <DropdownMenuSeparator />
                         </>
                       )}
-                      <DropdownMenuItem onClick={() => handleEditClick(order)}>
+                      <DropdownMenuItem onClick={() => handleEditClick(order)} disabled={order.status !== 'Pending'}>
                         <Edit className="mr-2 h-4 w-4" /> Edit
                       </DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => handleDeleteClick(order.id)} className="text-destructive">
+                      <DropdownMenuItem onClick={() => handleDeleteClick(order)} className="text-destructive">
                         <Trash2 className="mr-2 h-4 w-4" /> Delete
                       </DropdownMenuItem>
                     </DropdownMenuContent>
