@@ -49,7 +49,10 @@ export function OrdersTable() {
 
   const { toast } = useToast();
 
-  const orders = ordersSnapshot?.docs.map(doc => doc.data()).sort((a,b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()) ?? [];
+  const orders = React.useMemo(() => {
+    return ordersSnapshot?.docs.map(doc => doc.data()).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()) ?? [];
+  }, [ordersSnapshot]);
+  
   const allDrinks = drinksSnapshot?.docs.map(doc => doc.data()) ?? [];
   const allMaterials = materialsSnapshot?.docs.map(doc => doc.data()) ?? [];
 
@@ -57,20 +60,21 @@ export function OrdersTable() {
   const [selectedOrder, setSelectedOrder] = React.useState<Order | null>(null);
   const [orderItems, setOrderItems] = React.useState<OrderItem[]>([]);
   const [currentStatus, setCurrentStatus] = React.useState<Order['status'] | undefined>();
-
+  
   React.useEffect(() => {
     if (orders.length > 0) {
       const newFormattedDates = new Map<string, string>();
       for (const order of orders) {
         try {
-          newFormattedDates.set(order.id, new Intl.DateTimeFormat('en-EG', {
+          // This formatting needs to be consistent and preferably rely on data available on both server and client
+          // Using a simple, non-locale specific format first, then enhancing on the client.
+           newFormattedDates.set(order.id, new Intl.DateTimeFormat('en-US', {
             year: 'numeric',
             month: 'short',
             day: 'numeric',
             hour: 'numeric',
             minute: '2-digit',
             hour12: true,
-            timeZone: 'Africa/Cairo',
           }).format(new Date(order.createdAt)));
         } catch (e) {
           // Fallback for environments where Intl might fail or be inconsistent
@@ -144,65 +148,66 @@ export function OrdersTable() {
   };
 
   const handleUpdateStatus = async (order: Order, newStatus: Order['status']) => {
-    if (order.status === newStatus) return;
+    if (order.status === newStatus || order.status === 'Cancelled') return;
 
-    // Only handle status change to Completed from here, as it's the most common quick action
-    if (newStatus === 'Completed' && order.status !== 'Completed') {
-        try {
-            await runTransaction(db, async (transaction) => {
-                const orderRef = doc(db, 'orders', order.id);
-                const stockToDeduct = new Map<string, number>();
-
-                for (const item of order.items) {
-                    const drink = allDrinks.find(d => d.id === item.drinkId);
-                    if (drink) {
-                        for (const recipeItem of drink.recipe) {
-                            stockToDeduct.set(recipeItem.materialId, (stockToDeduct.get(recipeItem.materialId) || 0) + (recipeItem.quantity * item.quantity));
-                        }
-                    }
-                }
-
-                // READ phase: get all material documents first
-                const materialRefs = Array.from(stockToDeduct.keys()).map(id => doc(db, 'materials', id).withConverter(materialConverter));
-                const materialDocs = await Promise.all(materialRefs.map(ref => transaction.get(ref)));
-
-                // WRITE phase: now update the documents
-                for (const materialDoc of materialDocs) {
-                    if (!materialDoc.exists()) throw new Error(`Material ${materialDoc.data()?.name || materialDoc.id} not found.`);
-                    const currentStock = materialDoc.data().stock;
-                    const requiredStock = stockToDeduct.get(materialDoc.id) || 0;
-                    if (currentStock < requiredStock) {
-                        throw new Error(`Insufficient stock for ${materialDoc.data().name}. Required: ${requiredStock}, available: ${currentStock}`);
-                    }
-                    const newStock = currentStock - requiredStock;
-                    transaction.update(materialDoc.ref, { stock: newStock });
-                }
-
-                transaction.update(orderRef, { status: newStatus });
-            });
-            toast({ title: "Order status updated successfully!" });
-        } catch (error: any) {
-            toast({ variant: "destructive", title: "Error updating status", description: error.message });
-        }
-    } else { // For other statuses, just update the document simply.
+    try {
+      await runTransaction(db, async (transaction) => {
         const orderRef = doc(db, 'orders', order.id);
-        await updateDoc(orderRef, { status: newStatus });
-        toast({ title: `Order marked as ${newStatus}.` });
+        
+        if (newStatus === 'Completed' && order.status !== 'Completed') {
+          // Deduct stock
+          const stockToDeduct = new Map<string, number>();
+          for (const item of order.items) {
+            const drink = allDrinks.find(d => d.id === item.drinkId);
+            if (drink) {
+              for (const recipeItem of drink.recipe) {
+                stockToDeduct.set(recipeItem.materialId, (stockToDeduct.get(recipeItem.materialId) || 0) + (recipeItem.quantity * item.quantity));
+              }
+            }
+          }
+
+          const materialRefs = Array.from(stockToDeduct.keys()).map(id => doc(db, 'materials', id).withConverter(materialConverter));
+          const materialDocs = await Promise.all(materialRefs.map(ref => transaction.get(ref)));
+          
+          for (const materialDoc of materialDocs) {
+            if (!materialDoc.exists()) throw new Error(`Material with ID ${materialDoc.id} not found.`);
+            const currentStock = materialDoc.data().stock;
+            const requiredStock = stockToDeduct.get(materialDoc.id) || 0;
+            if (currentStock < requiredStock) {
+              throw new Error(`Insufficient stock for ${materialDoc.data().name}. Required: ${requiredStock}, available: ${currentStock}`);
+            }
+            transaction.update(materialDoc.ref, { stock: currentStock - requiredStock });
+          }
+        } else if (newStatus !== 'Completed' && order.status === 'Completed') {
+          // Return stock
+          const stockToReturn = new Map<string, number>();
+           for (const item of order.items) {
+            const drink = allDrinks.find(d => d.id === item.drinkId);
+            if (drink) {
+              for (const recipeItem of drink.recipe) {
+                stockToReturn.set(recipeItem.materialId, (stockToReturn.get(recipeItem.materialId) || 0) + (recipeItem.quantity * item.quantity));
+              }
+            }
+          }
+           const materialRefs = Array.from(stockToReturn.keys()).map(id => doc(db, 'materials', id).withConverter(materialConverter));
+           const materialDocs = await Promise.all(materialRefs.map(ref => transaction.get(ref)));
+           for(const materialDoc of materialDocs) {
+             if (materialDoc.exists()) {
+               const stockToAdd = stockToReturn.get(materialDoc.id) || 0;
+               transaction.update(materialDoc.ref, { stock: materialDoc.data().stock + stockToAdd });
+             }
+           }
+        }
+
+        transaction.update(orderRef, { status: newStatus });
+      });
+      toast({ title: `Order marked as ${newStatus}.` });
+    } catch (error: any) {
+      toast({ variant: "destructive", title: "Error updating status", description: error.message });
     }
   };
 
-  const handleItemChange = (drinkId: string, checked: boolean | 'indeterminate') => {
-    if (checked) {
-      setOrderItems([...orderItems, { drinkId, quantity: 1 }]);
-    } else {
-      setOrderItems(orderItems.filter(item => item.drinkId !== drinkId));
-    }
-  };
 
-  const handleQuantityChange = (drinkId: string, quantity: number) => {
-    setOrderItems(orderItems.map(item => item.drinkId === drinkId ? { ...item, quantity } : item));
-  };
-  
   const handleFormSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const itemsToSave = orderItems.filter(i => i.quantity > 0);
@@ -229,7 +234,7 @@ export function OrdersTable() {
                 const stockChanges = new Map<string, number>(); // positive to add stock, negative to remove
 
                 // Step 1: Calculate stock changes based on status transitions and item changes.
-                // Return stock if it was completed before
+                // Case 1: Order was completed, and might not be anymore OR its items changed.
                 if (oldStatus === 'Completed') {
                     for(const item of oldItems) {
                         const drink = allDrinks.find(d => d.id === item.drinkId);
@@ -241,7 +246,7 @@ export function OrdersTable() {
                     }
                 }
 
-                // Deduct stock if it is completed now
+                // Case 2: Order is now completed, and it wasn't before OR its items changed.
                 if (newStatus === 'Completed') {
                      for(const item of itemsToSave) {
                         const drink = allDrinks.find(d => d.id === item.drinkId);
@@ -259,7 +264,7 @@ export function OrdersTable() {
                     const materialRefs = materialIds.map(id => doc(db, 'materials', id).withConverter(materialConverter));
                     const materialDocs = await Promise.all(materialRefs.map(ref => transaction.get(ref)));
                     
-                    // WRITE phase
+                    // VALIDATION and WRITE phase
                     for(const materialDoc of materialDocs) {
                          if (!materialDoc.exists()) throw new Error(`Material with ID ${materialDoc.id} not found.`);
                          const change = stockChanges.get(materialDoc.id) || 0;
@@ -275,14 +280,14 @@ export function OrdersTable() {
 
         } else {
             // Creating a new order - NO stock change here. Stock is only deducted on completion.
-            const batch = writeBatch(db);
             const newOrderRef = doc(collection(db, 'orders'));
-            batch.set(newOrderRef.withConverter(orderConverter), {
-                status: 'Pending', // New orders are always pending
-                createdAt: new Date().toISOString(),
-                items: itemsToSave,
+            await runTransaction(db, async (transaction) => {
+                 transaction.set(newOrderRef.withConverter(orderConverter), {
+                    status: 'Pending', // New orders are always pending
+                    createdAt: new Date().toISOString(),
+                    items: itemsToSave,
+                });
             });
-            await batch.commit();
             toast({ title: "Order created successfully!" });
         }
     } catch (error: any) {
@@ -473,5 +478,3 @@ export function OrdersTable() {
     </>
   );
 }
-
-    
