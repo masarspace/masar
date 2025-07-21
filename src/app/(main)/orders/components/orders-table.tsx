@@ -3,7 +3,7 @@
 
 import * as React from 'react';
 import { useCollection } from 'react-firebase-hooks/firestore';
-import { collection, doc, writeBatch, runTransaction } from 'firebase/firestore';
+import { collection, doc, writeBatch, runTransaction, updateDoc, deleteDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { orderConverter, drinkConverter, materialConverter } from '@/lib/converters';
 import {
@@ -32,7 +32,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { MoreHorizontal, PlusCircle, Edit, Trash2, CheckCircle, XCircle } from 'lucide-react';
-import type { Order, OrderItem, Drink } from '@/lib/types';
+import type { Order, OrderItem, Drink, Material } from '@/lib/types';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Input } from '@/components/ui/input';
@@ -45,7 +45,7 @@ export function OrdersTable() {
   const [ordersSnapshot, ordersLoading] = useCollection(collection(db, 'orders').withConverter(orderConverter));
   const [drinksSnapshot, drinksLoading] = useCollection(collection(db, 'drinks').withConverter(drinkConverter));
   const [materialsSnapshot, materialsLoading] = useCollection(collection(db, 'materials').withConverter(materialConverter));
-  const [formattedDates, setFormattedDates] = React.useState<Record<string, string>>({});
+  const [formattedDates, setFormattedDates] = React.useState<Map<string, string>>(new Map());
 
   const { toast } = useToast();
 
@@ -60,23 +60,24 @@ export function OrdersTable() {
 
   React.useEffect(() => {
     if (orders.length > 0) {
-        const newFormattedDates: Record<string, string> = {};
-        for (const order of orders) {
-            try {
-                newFormattedDates[order.id] = new Intl.DateTimeFormat('en-EG', {
-                    year: 'numeric',
-                    month: 'short',
-                    day: 'numeric',
-                    hour: 'numeric',
-                    minute: '2-digit',
-                    hour12: true,
-                    timeZone: 'Africa/Cairo',
-                }).format(new Date(order.createdAt));
-            } catch (e) {
-                newFormattedDates[order.id] = new Date(order.createdAt).toLocaleDateString(); // Fallback
-            }
+      const newFormattedDates = new Map<string, string>();
+      for (const order of orders) {
+        try {
+          newFormattedDates.set(order.id, new Intl.DateTimeFormat('en-EG', {
+            year: 'numeric',
+            month: 'short',
+            day: 'numeric',
+            hour: 'numeric',
+            minute: '2-digit',
+            hour12: true,
+            timeZone: 'Africa/Cairo',
+          }).format(new Date(order.createdAt)));
+        } catch (e) {
+          // Fallback for environments where Intl might fail or be inconsistent
+          newFormattedDates.set(order.id, new Date(order.createdAt).toLocaleDateString()); 
         }
-        setFormattedDates(newFormattedDates);
+      }
+      setFormattedDates(newFormattedDates);
     }
   }, [orders]);
 
@@ -110,6 +111,7 @@ export function OrdersTable() {
       await runTransaction(db, async (transaction) => {
         const orderRef = doc(db, 'orders', order.id);
 
+        // Only return stock if the order was completed
         if (order.status === 'Completed') {
             const stockToReturn = new Map<string, number>();
             for (const item of order.items) {
@@ -142,9 +144,10 @@ export function OrdersTable() {
   };
 
   const handleUpdateStatus = async (order: Order, newStatus: Order['status']) => {
-    if (order.status === newStatus || order.status !== 'Pending') return;
+    if (order.status === newStatus) return;
 
-    if (newStatus === 'Completed') {
+    // Only handle status change to Completed from here, as it's the most common quick action
+    if (newStatus === 'Completed' && order.status !== 'Completed') {
         try {
             await runTransaction(db, async (transaction) => {
                 const orderRef = doc(db, 'orders', order.id);
@@ -159,11 +162,13 @@ export function OrdersTable() {
                     }
                 }
 
+                // READ phase: get all material documents first
                 const materialRefs = Array.from(stockToDeduct.keys()).map(id => doc(db, 'materials', id).withConverter(materialConverter));
                 const materialDocs = await Promise.all(materialRefs.map(ref => transaction.get(ref)));
 
+                // WRITE phase: now update the documents
                 for (const materialDoc of materialDocs) {
-                    if (!materialDoc.exists()) throw new Error(`Material ${materialDoc.id} not found.`);
+                    if (!materialDoc.exists()) throw new Error(`Material ${materialDoc.data()?.name || materialDoc.id} not found.`);
                     const currentStock = materialDoc.data().stock;
                     const requiredStock = stockToDeduct.get(materialDoc.id) || 0;
                     if (currentStock < requiredStock) {
@@ -179,10 +184,10 @@ export function OrdersTable() {
         } catch (error: any) {
             toast({ variant: "destructive", title: "Error updating status", description: error.message });
         }
-    } else if (newStatus === 'Cancelled') {
+    } else { // For other statuses, just update the document simply.
         const orderRef = doc(db, 'orders', order.id);
         await updateDoc(orderRef, { status: newStatus });
-        toast({ title: "Order cancelled." });
+        toast({ title: `Order marked as ${newStatus}.` });
     }
   };
 
@@ -205,7 +210,7 @@ export function OrdersTable() {
 
     if (!newStatus) {
         toast({ variant: "destructive", title: "Cannot save order", description: "Please select a status." });
-        return;
+        return; 
     }
     
     if (itemsToSave.length === 0) {
@@ -223,7 +228,8 @@ export function OrdersTable() {
                 
                 const stockChanges = new Map<string, number>(); // positive to add stock, negative to remove
 
-                // Step 1: Calculate stock to return from the OLD order if it was completed.
+                // Step 1: Calculate stock changes based on status transitions and item changes.
+                // Return stock if it was completed before
                 if (oldStatus === 'Completed') {
                     for(const item of oldItems) {
                         const drink = allDrinks.find(d => d.id === item.drinkId);
@@ -235,7 +241,7 @@ export function OrdersTable() {
                     }
                 }
 
-                // Step 2: Calculate stock to deduct for the NEW order if it is now completed.
+                // Deduct stock if it is completed now
                 if (newStatus === 'Completed') {
                      for(const item of itemsToSave) {
                         const drink = allDrinks.find(d => d.id === item.drinkId);
@@ -249,9 +255,11 @@ export function OrdersTable() {
 
                 const materialIds = Array.from(stockChanges.keys());
                 if (materialIds.length > 0) {
+                    // READ phase
                     const materialRefs = materialIds.map(id => doc(db, 'materials', id).withConverter(materialConverter));
                     const materialDocs = await Promise.all(materialRefs.map(ref => transaction.get(ref)));
                     
+                    // WRITE phase
                     for(const materialDoc of materialDocs) {
                          if (!materialDoc.exists()) throw new Error(`Material with ID ${materialDoc.id} not found.`);
                          const change = stockChanges.get(materialDoc.id) || 0;
@@ -266,7 +274,7 @@ export function OrdersTable() {
             toast({ title: "Order updated successfully!" });
 
         } else {
-            // Creating a new order - NO stock change here, only when completed.
+            // Creating a new order - NO stock change here. Stock is only deducted on completion.
             const batch = writeBatch(db);
             const newOrderRef = doc(collection(db, 'orders'));
             batch.set(newOrderRef.withConverter(orderConverter), {
@@ -352,7 +360,7 @@ export function OrdersTable() {
             {orders.map((order) => (
               <TableRow key={order.id}>
                 <TableCell className="font-mono text-xs">{order.id}</TableCell>
-                <TableCell>{formattedDates[order.id] || <Skeleton className="h-5 w-36" />}</TableCell>
+                <TableCell>{formattedDates.get(order.id) || <Skeleton className="h-5 w-36" />}</TableCell>
                 <TableCell>
                   {order.items.map(i => `${i.quantity}x ${getDrinkName(i.drinkId)}`).join(', ')}
                 </TableCell>
@@ -384,7 +392,7 @@ export function OrdersTable() {
                         </>
                        )}
                        <DropdownMenuItem onClick={() => handleEditClick(order)}>
-                        <Edit className="mr-2 h-4 w-4" />
+                        <Edit className="mr-2 h-4 w-4" /> Edit
                       </DropdownMenuItem>
                       <DropdownMenuItem onClick={() => handleDeleteClick(order)} className="text-destructive">
                         <Trash2 className="mr-2 h-4 w-4" /> Delete
@@ -465,3 +473,5 @@ export function OrdersTable() {
     </>
   );
 }
+
+    
