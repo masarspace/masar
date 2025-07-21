@@ -71,14 +71,6 @@ export function OrdersTable() {
   };
 
   const handleEditClick = (order: Order) => {
-    if(order.status !== 'Pending') {
-      toast({
-        variant: "destructive",
-        title: "Cannot edit order",
-        description: "Only pending orders can be edited.",
-      });
-      return;
-    }
     setSelectedOrder(order);
     setIsSheetOpen(true);
   };
@@ -86,7 +78,7 @@ export function OrdersTable() {
   const handleDeleteClick = async (order: Order) => {
     if(!order.id) return;
     
-    // If order is not cancelled, stock needs to be returned before deleting
+    // If order is completed or pending, stock needs to be returned before deleting
     if(order.status === 'Pending' || order.status === 'Completed') {
       try {
         await runTransaction(db, async (transaction) => {
@@ -101,7 +93,7 @@ export function OrdersTable() {
           // 1. READ all necessary documents first
           const materialRefs = Array.from(materialIdsToUpdate).map(id => doc(db, 'materials', id).withConverter(materialConverter));
           const materialDocs = await Promise.all(materialRefs.map(ref => transaction.get(ref)));
-          const materialMap = new Map(materialDocs.map(d => [d.id, d]));
+          const materialMap = new Map(materialDocs.map(d => [d.id, d.data()]));
 
           const stockToReturnByMaterialId = new Map<string, number>();
 
@@ -117,8 +109,11 @@ export function OrdersTable() {
           }
 
           // 2. WRITE all updates
-          for (const [materialId, stockToReturn] of stockToReturnByMaterialId.entries()) {
-            const materialDoc = materialMap.get(materialId);
+          for (let i=0; i < materialDocs.length; i++) {
+            const materialDoc = materialDocs[i];
+            const materialId = materialDoc.id;
+            const stockToReturn = stockToReturnByMaterialId.get(materialId) || 0;
+            
             if (!materialDoc || !materialDoc.exists()) {
                 throw new Error(`Material with ID ${materialId} not found during deletion.`);
             }
@@ -299,17 +294,18 @@ export function OrdersTable() {
                 // 1. READ all documents
                 const materialRefs = Array.from(materialIdsToUpdate).map(id => doc(db, 'materials', id).withConverter(materialConverter));
                 const materialDocs = await Promise.all(materialRefs.map(ref => transaction.get(ref)));
-                const materialMap = new Map(materialDocs.map(d => [d.id, d]));
+                const materialMap = new Map(materialDocs.map(d => [d.id, d.data()]));
 
                 // 2. WRITE all updates
                 for (const item of order.items) {
                     const drink = allDrinks.find(d => d.id === item.drinkId);
                     if (drink) {
                         for (const recipeItem of drink.recipe) {
-                            const materialDoc = materialMap.get(recipeItem.materialId);
-                            if (!materialDoc || !materialDoc.exists()) throw new Error(`Material ${recipeItem.materialId} not found.`);
+                            const materialData = materialMap.get(recipeItem.materialId);
+                            if (!materialData) throw new Error(`Material ${recipeItem.materialId} not found.`);
                             const stockToReturn = recipeItem.quantity * item.quantity;
-                            transaction.update(materialDoc.ref, { stock: materialDoc.data().stock + stockToReturn });
+                            const materialRef = doc(db, 'materials', recipeItem.materialId);
+                            transaction.update(materialRef, { stock: materialData.stock + stockToReturn });
                         }
                     }
                 }
