@@ -1,6 +1,8 @@
 import { FileText } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { WastageReport } from './components/wastage-report';
+import { SalesReport } from './components/sales-report';
+import { Separator } from '@/components/ui/separator';
 
 export default function ReportsPage() {
   return (
@@ -20,6 +22,15 @@ export default function ReportsPage() {
         </CardHeader>
         <CardContent>
             <WastageReport />
+        </CardContent>
+      </Card>
+      <Card>
+        <CardHeader>
+            <CardTitle>Sales Report</CardTitle>
+            <CardDescription>Generate a detailed report of sales and revenue for a specific period.</CardDescription>
+        </CardHeader>
+        <CardContent>
+            <SalesReport />
         </CardContent>
       </Card>
     </div>
