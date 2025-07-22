@@ -45,6 +45,20 @@ import { Calendar } from '@/components/ui/calendar';
 import { format, startOfDay, endOfDay } from 'date-fns';
 import type { DateRange } from 'react-day-picker';
 
+
+const CONVERSION_FACTORS: Record<string, number> = {
+  'g_to_kg': 0.001,
+  'kg_to_g': 1000,
+  'ml_to_l': 0.001,
+  'l_to_ml': 1000,
+};
+
+function getConversionFactor(fromUnit: string, toUnit: string): number {
+    if (fromUnit === toUnit) return 1;
+    const key = `${fromUnit}_to_${toUnit}`;
+    return CONVERSION_FACTORS[key] || 1; // Default to 1 if no conversion is defined
+}
+
 export function OrdersTable() {
   const [ordersSnapshot, ordersLoading] = useCollection(collection(db, 'orders').withConverter(orderConverter));
   const [drinksSnapshot, drinksLoading] = useCollection(collection(db, 'drinks').withConverter(drinkConverter));
@@ -143,7 +157,9 @@ export function OrdersTable() {
                         const materialRef = doc(db, 'materials', recipeItem.materialId).withConverter(materialConverter);
                         const materialDoc = await transaction.get(materialRef);
                         if (materialDoc.exists()) {
-                            const stockToAdd = recipeItem.quantity * item.quantity;
+                            const materialData = materialDoc.data();
+                            const conversionFactor = getConversionFactor(recipeItem.unit, materialData.unit);
+                            const stockToAdd = (recipeItem.quantity * item.quantity) * conversionFactor;
                             transaction.update(materialRef, { stock: materialDoc.data().stock + stockToAdd });
                             // Log audit
                              const auditLogRef = doc(collection(db, 'auditLog'));
@@ -184,11 +200,15 @@ export function OrdersTable() {
                     const drink = allDrinks.find(d => d.id === item.drinkId);
                     if (drink) {
                         for (const recipeItem of drink.recipe) {
-                            const change = (recipeItem.quantity * item.quantity) * multiplier;
+                            const material = allMaterials.find(m => m.id === recipeItem.materialId);
+                            if (!material) continue;
+                            const conversionFactor = getConversionFactor(recipeItem.unit, material.unit);
+                            const change = (recipeItem.quantity * item.quantity * conversionFactor) * multiplier;
+
                             const existing = materialChanges.get(recipeItem.materialId) || { change: 0, name: ''};
                             materialChanges.set(recipeItem.materialId, {
                                 change: existing.change + change,
-                                name: allMaterials.find(m => m.id === recipeItem.materialId)?.name || 'Unknown'
+                                name: material.name
                             });
                         }
                     }
@@ -257,38 +277,34 @@ export function OrdersTable() {
                 
                 const materialChanges = new Map<string, { change: number, name: string }>();
 
-                // Revert old items if order was completed
-                if (oldStatus === 'Completed') {
-                    for(const item of oldItems) {
+                const calculateChanges = (items: OrderItem[], multiplier: 1 | -1) => {
+                    for(const item of items) {
                         const drink = allDrinks.find(d => d.id === item.drinkId);
                         if (drink) {
                             for (const recipeItem of drink.recipe) {
-                                const change = recipeItem.quantity * item.quantity;
+                                const material = allMaterials.find(m => m.id === recipeItem.materialId);
+                                if (!material) continue;
+                                const conversionFactor = getConversionFactor(recipeItem.unit, material.unit);
+                                const change = (recipeItem.quantity * item.quantity * conversionFactor) * multiplier;
+
                                 const existing = materialChanges.get(recipeItem.materialId) || { change: 0, name: '' };
                                 materialChanges.set(recipeItem.materialId, {
                                     change: existing.change + change,
-                                    name: allMaterials.find(m => m.id === recipeItem.materialId)?.name || 'Unknown'
+                                    name: material.name
                                 });
                             }
                         }
                     }
                 }
 
+                // Revert old items if order was completed
+                if (oldStatus === 'Completed') {
+                   calculateChanges(oldItems, 1);
+                }
+
                 // Apply new items if order is now completed
                 if (newStatus === 'Completed') {
-                     for(const item of itemsToSave) {
-                        const drink = allDrinks.find(d => d.id === item.drinkId);
-                        if (drink) {
-                            for (const recipeItem of drink.recipe) {
-                                const change = -(recipeItem.quantity * item.quantity);
-                                const existing = materialChanges.get(recipeItem.materialId) || { change: 0, name: ''};
-                                materialChanges.set(recipeItem.materialId, { 
-                                    change: existing.change + change,
-                                    name: allMaterials.find(m => m.id === recipeItem.materialId)?.name || 'Unknown'
-                                });
-                            }
-                        }
-                    }
+                     calculateChanges(itemsToSave, -1);
                 }
 
                 const materialIds = Array.from(materialChanges.keys());
@@ -581,3 +597,5 @@ export function OrdersTable() {
     </>
   );
 }
+
+    
