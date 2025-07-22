@@ -3,9 +3,10 @@
 
 import * as React from 'react';
 import { useCollection } from 'react-firebase-hooks/firestore';
-import { collection, doc, runTransaction, query, orderBy, deleteField } from 'firebase/firestore';
+import { collection, doc, runTransaction, query, orderBy, deleteField, updateDoc } from 'firebase/firestore';
+import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { db } from '@/lib/firebase';
-import { purchaseOrderConverter, materialConverter, purchaseCategoryConverter } from '@/lib/converters';
+import { purchaseOrderConverter, materialConverter, purchaseCategoryConverter, auditLogConverter } from '@/lib/converters';
 import {
   Table,
   TableBody,
@@ -20,9 +21,16 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import {
+    Dialog,
+    DialogContent,
+    DialogHeader,
+    DialogTitle,
+    DialogDescription,
+} from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { MoreHorizontal, CheckCircle, XCircle, Truck, RefreshCw, Search, Calendar as CalendarIcon } from 'lucide-react';
+import { MoreHorizontal, CheckCircle, XCircle, Truck, RefreshCw, Search, Calendar as CalendarIcon, Upload, Eye } from 'lucide-react';
 import type { PurchaseOrder } from '@/lib/types';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from "@/hooks/use-toast";
@@ -32,6 +40,7 @@ import { format, startOfDay, endOfDay } from 'date-fns';
 import type { DateRange } from 'react-day-picker';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import Image from 'next/image';
 
 const CONVERSION_FACTORS: Record<string, number> = {
   'g_to_kg': 0.001,
@@ -52,10 +61,13 @@ export function PurchasingStatusTable() {
   const [categoriesSnapshot, categoriesLoading] = useCollection(collection(db, 'purchaseCategories').withConverter(purchaseCategoryConverter));
   
   const { toast } = useToast();
+  const storage = getStorage();
 
   const [searchTerm, setSearchTerm] = React.useState('');
   const [dateRange, setDateRange] = React.useState<DateRange | undefined>();
   const [categoryFilter, setCategoryFilter] = React.useState<string>('all');
+  const [isUploading, setIsUploading] = React.useState<string | null>(null);
+  const [receiptToView, setReceiptToView] = React.useState<string | null>(null);
 
   const allMaterials = React.useMemo(() => materialsSnapshot?.docs.map(doc => doc.data()) ?? [], [materialsSnapshot]);
   const allCategories = React.useMemo(() => categoriesSnapshot?.docs.map(doc => doc.data()) ?? [], [categoriesSnapshot]);
@@ -128,32 +140,38 @@ export function PurchasingStatusTable() {
             
             const poUpdateData: any = { status: newStatus };
 
-            if (newStatus === 'Completed' && oldStatus !== 'Completed') {
-                poUpdateData.receivedAt = new Date().toISOString();
+            const processStockUpdate = (multiplier: 1 | -1) => {
                 for (let i = 0; i < materialDocs.length; i++) {
                     const materialDoc = materialDocs[i];
                     const item = orderData.items[i];
                     if (!materialDoc.exists()) throw new Error(`Material ${getMaterialName(item.materialId)} not found.`);
                     const materialData = materialDoc.data();
                     const conversionFactor = getConversionFactor(item.unit, materialData.unit);
-                    const quantityToAdd = item.quantity * conversionFactor;
-                    const newStock = materialData.stock + quantityToAdd;
+                    const stockChange = (item.quantity * conversionFactor) * multiplier;
+                    const newStock = materialData.stock + stockChange;
+                    if (newStock < 0) throw new Error(`Cannot reverse order, insufficient stock for ${materialData.name}.`);
                     transaction.update(materialDoc.ref, { stock: newStock });
+
+                    // Log audit
+                    const auditLogRef = doc(collection(db, 'auditLog'));
+                    transaction.set(auditLogRef.withConverter(auditLogConverter), {
+                        materialId: materialDoc.id,
+                        materialName: materialData.name,
+                        change: stockChange,
+                        type: stockChange > 0 ? 'purchase' : 'adjustment',
+                        relatedId: orderId,
+                        createdAt: new Date().toISOString()
+                    });
                 }
+            };
+
+            if (newStatus === 'Completed' && oldStatus !== 'Completed') {
+                poUpdateData.receivedAt = new Date().toISOString();
+                processStockUpdate(1); // Add stock
             }
             else if (oldStatus === 'Completed' && newStatus !== 'Completed') {
                 poUpdateData.receivedAt = deleteField();
-                 for (let i = 0; i < materialDocs.length; i++) {
-                    const materialDoc = materialDocs[i];
-                    const item = orderData.items[i];
-                    if (!materialDoc.exists()) throw new Error(`Material ${getMaterialName(item.materialId)} not found.`);
-                    const materialData = materialDoc.data();
-                    const conversionFactor = getConversionFactor(item.unit, materialData.unit);
-                    const quantityToRemove = item.quantity * conversionFactor;
-                    const newStock = materialData.stock - quantityToRemove;
-                    if (newStock < 0) throw new Error(`Cannot reverse order, insufficient stock for ${materialData.name}.`);
-                    transaction.update(materialDoc.ref, { stock: newStock });
-                }
+                processStockUpdate(-1); // Remove stock
             }
             
             transaction.update(orderRef, poUpdateData);
@@ -163,6 +181,30 @@ export function PurchasingStatusTable() {
         toast({ variant: "destructive", title: "Error updating status", description: error.message });
      }
   };
+  
+    const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, orderId: string) => {
+        const file = e.target.files?.[0];
+        if (!file) return;
+
+        setIsUploading(orderId);
+        toast({ title: "Uploading receipt..." });
+
+        try {
+            const receiptRef = ref(storage, `receipts/${orderId}/${file.name}`);
+            const snapshot = await uploadBytes(receiptRef, file);
+            const downloadURL = await getDownloadURL(snapshot.ref);
+
+            await updateDoc(doc(db, 'purchaseOrders', orderId), {
+                receiptImageUrl: downloadURL,
+            });
+
+            toast({ title: "Receipt uploaded successfully!" });
+        } catch (error: any) {
+            toast({ variant: "destructive", title: "Upload failed", description: error.message });
+        } finally {
+            setIsUploading(null);
+        }
+    };
 
 
   const getOrderTotal = (items: PurchaseOrder['items']) => {
@@ -323,6 +365,19 @@ export function PurchasingStatusTable() {
                       </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
+                       {order.receiptImageUrl && (
+                        <DropdownMenuItem onSelect={() => setReceiptToView(order.receiptImageUrl!)}>
+                            <Eye className="mr-2 h-4 w-4" />
+                            View Receipt
+                        </DropdownMenuItem>
+                       )}
+                       <DropdownMenuItem onSelect={(e) => e.preventDefault()}>
+                            <label htmlFor={`upload-${order.id}`} className="flex items-center cursor-pointer">
+                                <Upload className="mr-2 h-4 w-4" />
+                                {isUploading === order.id ? 'Uploading...' : 'Upload Receipt'}
+                            </label>
+                           <input type="file" id={`upload-${order.id}`} className="hidden" onChange={(e) => handleFileUpload(e, order.id)} disabled={isUploading === order.id} />
+                       </DropdownMenuItem>
                       {order.status === 'Pending' && (
                         <>
                             <DropdownMenuItem onClick={() => handleUpdateStatus(order.id, 'Approved')}>
@@ -361,6 +416,19 @@ export function PurchasingStatusTable() {
           </TableBody>
         </Table>
       </div>
+      <Dialog open={!!receiptToView} onOpenChange={(open) => !open && setReceiptToView(null)}>
+        <DialogContent className="max-w-3xl">
+            <DialogHeader>
+                <DialogTitle>Receipt Image</DialogTitle>
+                <DialogDescription>Image attached to the purchase order.</DialogDescription>
+            </DialogHeader>
+            {receiptToView && (
+                <div className="relative h-[600px] w-full">
+                    <Image src={receiptToView} alt="Receipt" layout="fill" objectFit="contain" />
+                </div>
+            )}
+        </DialogContent>
+      </Dialog>
     </>
   );
 }

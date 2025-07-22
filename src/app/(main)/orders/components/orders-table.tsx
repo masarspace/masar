@@ -3,9 +3,9 @@
 
 import * as React from 'react';
 import { useCollection } from 'react-firebase-hooks/firestore';
-import { collection, doc, runTransaction } from 'firebase/firestore';
+import { collection, doc, runTransaction, addDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
-import { orderConverter, drinkConverter, materialConverter } from '@/lib/converters';
+import { orderConverter, drinkConverter, materialConverter, auditLogConverter } from '@/lib/converters';
 import {
   Table,
   TableBody,
@@ -136,24 +136,27 @@ export function OrdersTable() {
 
         // Only return stock if the order was completed
         if (order.status === 'Completed') {
-            const stockToReturn = new Map<string, number>();
             for (const item of order.items) {
                 const drink = allDrinks.find(d => d.id === item.drinkId);
                 if (drink) {
                     for (const recipeItem of drink.recipe) {
-                        stockToReturn.set(recipeItem.materialId, (stockToReturn.get(recipeItem.materialId) || 0) + (recipeItem.quantity * item.quantity));
+                        const materialRef = doc(db, 'materials', recipeItem.materialId).withConverter(materialConverter);
+                        const materialDoc = await transaction.get(materialRef);
+                        if (materialDoc.exists()) {
+                            const stockToAdd = recipeItem.quantity * item.quantity;
+                            transaction.update(materialRef, { stock: materialDoc.data().stock + stockToAdd });
+                            // Log audit
+                             const auditLogRef = doc(collection(db, 'auditLog'));
+                             transaction.set(auditLogRef.withConverter(auditLogConverter), {
+                                materialId: recipeItem.materialId,
+                                materialName: materialDoc.data().name,
+                                change: stockToAdd,
+                                type: 'adjustment',
+                                relatedId: order.id,
+                                createdAt: new Date().toISOString()
+                            });
+                        }
                     }
-                }
-            }
-
-            const materialRefs = Array.from(stockToReturn.keys()).map(id => doc(db, 'materials', id));
-            const materialDocs = await Promise.all(materialRefs.map(ref => transaction.get(ref.withConverter(materialConverter))));
-            
-            for (const materialDoc of materialDocs) {
-                if (materialDoc.exists()) {
-                    const stockToAdd = stockToReturn.get(materialDoc.id) || 0;
-                    const newStock = materialDoc.data().stock + stockToAdd;
-                    transaction.update(materialDoc.ref, { stock: newStock });
                 }
             }
         }
@@ -174,52 +177,50 @@ export function OrdersTable() {
             const orderRef = doc(db, 'orders', order.id);
             const oldStatus = order.status;
 
-            // Only deduct stock when moving TO completed
-            if (newStatus === 'Completed' && oldStatus !== 'Completed') {
-                const stockToDeduct = new Map<string, number>();
-                for (const item of order.items) {
+            const materialChanges = new Map<string, { change: number, name: string }>();
+
+            const calculateChanges = (multiplier: 1 | -1) => {
+                 for (const item of order.items) {
                     const drink = allDrinks.find(d => d.id === item.drinkId);
                     if (drink) {
                         for (const recipeItem of drink.recipe) {
-                            stockToDeduct.set(recipeItem.materialId, (stockToDeduct.get(recipeItem.materialId) || 0) + (recipeItem.quantity * item.quantity));
+                            const change = (recipeItem.quantity * item.quantity) * multiplier;
+                            const existing = materialChanges.get(recipeItem.materialId) || { change: 0, name: ''};
+                            materialChanges.set(recipeItem.materialId, {
+                                change: existing.change + change,
+                                name: allMaterials.find(m => m.id === recipeItem.materialId)?.name || 'Unknown'
+                            });
                         }
                     }
                 }
-                
-                const materialRefs = Array.from(stockToDeduct.keys()).map(id => doc(db, 'materials', id).withConverter(materialConverter));
-                const materialDocs = await Promise.all(materialRefs.map(ref => transaction.get(ref)));
+            }
+            
+            if (oldStatus === 'Completed') calculateChanges(1); // Return stock
+            if (newStatus === 'Completed') calculateChanges(-1); // Deduct stock
+            
+            const materialRefs = Array.from(materialChanges.keys()).map(id => doc(db, 'materials', id).withConverter(materialConverter));
+            const materialDocs = await Promise.all(materialRefs.map(ref => transaction.get(ref)));
+            
+            for(const materialDoc of materialDocs) {
+                if (!materialDoc.exists()) throw new Error(`Material with ID ${materialDoc.id} not found.`);
+                const changeData = materialChanges.get(materialDoc.id);
+                if (!changeData) continue;
 
-                for (const materialDoc of materialDocs) {
-                    if (!materialDoc.exists()) throw new Error(`Material with ID ${materialDoc.id} not found.`);
-                    const currentStock = materialDoc.data().stock;
-                    const requiredStock = stockToDeduct.get(materialDoc.id) || 0;
-                    if (currentStock < requiredStock) {
-                        throw new Error(`Insufficient stock for ${materialDoc.data().name}.`);
-                    }
-                    transaction.update(materialDoc.ref, { stock: currentStock - requiredStock });
-                }
-            } 
-            // Only return stock when moving FROM completed
-            else if (oldStatus === 'Completed' && newStatus !== 'Completed') {
-                const stockToReturn = new Map<string, number>();
-                for (const item of order.items) {
-                    const drink = allDrinks.find(d => d.id === item.drinkId);
-                    if (drink) {
-                        for (const recipeItem of drink.recipe) {
-                            stockToReturn.set(recipeItem.materialId, (stockToReturn.get(recipeItem.materialId) || 0) + (recipeItem.quantity * item.quantity));
-                        }
-                    }
-                }
+                const newStock = materialDoc.data().stock + changeData.change;
+                if (newStock < 0) throw new Error(`Insufficient stock for ${materialDoc.data().name}.`);
                 
-                const materialRefs = Array.from(stockToReturn.keys()).map(id => doc(db, 'materials', id).withConverter(materialConverter));
-                const materialDocs = await Promise.all(materialRefs.map(ref => transaction.get(ref)));
+                transaction.update(materialDoc.ref, { stock: newStock });
 
-                for (const materialDoc of materialDocs) {
-                    if (materialDoc.exists()) {
-                        const stockToAdd = stockToReturn.get(materialDoc.id) || 0;
-                        transaction.update(materialDoc.ref, { stock: materialDoc.data().stock + stockToAdd });
-                    }
-                }
+                // Log audit
+                const auditLogRef = doc(collection(db, 'auditLog'));
+                transaction.set(auditLogRef.withConverter(auditLogConverter), {
+                    materialId: materialDoc.id,
+                    materialName: materialDoc.data().name,
+                    change: changeData.change,
+                    type: changeData.change > 0 ? 'adjustment' : 'sale',
+                    relatedId: order.id,
+                    createdAt: new Date().toISOString()
+                });
             }
 
             transaction.update(orderRef, { status: newStatus });
@@ -254,44 +255,65 @@ export function OrdersTable() {
                 const oldStatus = selectedOrder.status;
                 const oldItems = selectedOrder.items;
                 
-                const stockChanges = new Map<string, number>(); // positive to add stock, negative to remove
+                const materialChanges = new Map<string, { change: number, name: string }>();
 
-                // Step 1: Calculate stock changes based on status transitions and item changes.
-                // Case 1: Order was completed, now needs stock returned
+                // Revert old items if order was completed
                 if (oldStatus === 'Completed') {
                     for(const item of oldItems) {
                         const drink = allDrinks.find(d => d.id === item.drinkId);
                         if (drink) {
                             for (const recipeItem of drink.recipe) {
-                                stockChanges.set(recipeItem.materialId, (stockChanges.get(recipeItem.materialId) || 0) + recipeItem.quantity * item.quantity);
+                                const change = recipeItem.quantity * item.quantity;
+                                const existing = materialChanges.get(recipeItem.materialId) || { change: 0, name: '' };
+                                materialChanges.set(recipeItem.materialId, {
+                                    change: existing.change + change,
+                                    name: allMaterials.find(m => m.id === recipeItem.materialId)?.name || 'Unknown'
+                                });
                             }
                         }
                     }
                 }
 
-                // Case 2: Order is now completed, needs stock deducted
+                // Apply new items if order is now completed
                 if (newStatus === 'Completed') {
                      for(const item of itemsToSave) {
                         const drink = allDrinks.find(d => d.id === item.drinkId);
                         if (drink) {
                             for (const recipeItem of drink.recipe) {
-                                stockChanges.set(recipeItem.materialId, (stockChanges.get(recipeItem.materialId) || 0) - recipeItem.quantity * item.quantity);
+                                const change = -(recipeItem.quantity * item.quantity);
+                                const existing = materialChanges.get(recipeItem.materialId) || { change: 0, name: ''};
+                                materialChanges.set(recipeItem.materialId, { 
+                                    change: existing.change + change,
+                                    name: allMaterials.find(m => m.id === recipeItem.materialId)?.name || 'Unknown'
+                                });
                             }
                         }
                     }
                 }
 
-                const materialIds = Array.from(stockChanges.keys());
+                const materialIds = Array.from(materialChanges.keys());
                 if (materialIds.length > 0) {
                     const materialRefs = materialIds.map(id => doc(db, 'materials', id).withConverter(materialConverter));
                     const materialDocs = await Promise.all(materialRefs.map(ref => transaction.get(ref)));
                     
                     for(const materialDoc of materialDocs) {
                          if (!materialDoc.exists()) throw new Error(`Material with ID ${materialDoc.id} not found.`);
-                         const change = stockChanges.get(materialDoc.id) || 0;
-                         const newStock = materialDoc.data().stock + change;
+                         const changeData = materialChanges.get(materialDoc.id);
+                         if (!changeData) continue;
+                         const newStock = materialDoc.data().stock + changeData.change;
                          if (newStock < 0) throw new Error(`Insufficient stock for ${materialDoc.data().name}.`);
                          transaction.update(materialDoc.ref, { stock: newStock });
+
+                         // Log audit
+                        const auditLogRef = doc(collection(db, 'auditLog'));
+                        transaction.set(auditLogRef.withConverter(auditLogConverter), {
+                            materialId: materialDoc.id,
+                            materialName: materialDoc.data().name,
+                            change: changeData.change,
+                            type: 'adjustment',
+                            relatedId: selectedOrder.id,
+                            createdAt: new Date().toISOString()
+                        });
                     }
                 }
 

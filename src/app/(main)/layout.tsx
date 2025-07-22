@@ -25,6 +25,8 @@ import {
   Tags,
   Truck,
   ClipboardList,
+  FileText,
+  History,
 } from "lucide-react";
 import { usePathname } from "next/navigation";
 
@@ -106,6 +108,19 @@ export default function MainLayout({
                         </Link>
                       </SidebarMenuButton>
                     </SidebarMenuItem>
+                     <SidebarMenuItem>
+                      <SidebarMenuButton
+                        asChild
+                        href="/audit-log"
+                        isActive={pathname.startsWith("/audit-log")}
+                        tooltip="Audit Log"
+                      >
+                        <Link href="/audit-log">
+                          <History />
+                          <span>Audit Log</span>
+                        </Link>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
                   </SidebarMenu>
                 </SidebarGroupContent>
               </SidebarGroup>
@@ -158,6 +173,28 @@ export default function MainLayout({
                     </SidebarMenu>
                  </SidebarGroupContent>
               </SidebarGroup>
+               <SidebarSeparator />
+
+                 <SidebarGroup>
+                    <SidebarGroupLabel>Analysis</SidebarGroupLabel>
+                    <SidebarGroupContent>
+                        <SidebarMenu>
+                            <SidebarMenuItem>
+                                <SidebarMenuButton
+                                asChild
+                                href="/reports"
+                                isActive={pathname.startsWith("/reports")}
+                                tooltip="Reports"
+                                >
+                                <Link href="/reports">
+                                    <FileText />
+                                    <span>Reports</span>
+                                </Link>
+                                </SidebarMenuButton>
+                            </SidebarMenuItem>
+                        </SidebarMenu>
+                    </SidebarGroupContent>
+                 </SidebarGroup>
             </SidebarMenu>
           </SidebarContent>
         </Sidebar>

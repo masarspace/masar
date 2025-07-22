@@ -6,7 +6,7 @@ import {
   FieldValue,
   deleteField,
 } from 'firebase/firestore';
-import type { Material, Drink, Order, PurchaseCategory, PurchaseOrder, PurchaseOrderItem } from './types';
+import type { Material, Drink, Order, PurchaseCategory, PurchaseOrder, PurchaseOrderItem, AuditLogEntry } from './types';
 
 export const materialConverter: FirestoreDataConverter<Material> = {
   toFirestore(material: Material): DocumentData {
@@ -125,6 +125,29 @@ export const purchaseOrderConverter: FirestoreDataConverter<PurchaseOrder> = {
       location: data.location,
       createdAt: data.createdAt,
       receivedAt: data.receivedAt,
+      receiptImageUrl: data.receiptImageUrl,
     };
   },
+};
+
+
+export const auditLogConverter: FirestoreDataConverter<AuditLogEntry> = {
+    toFirestore(log: Omit<AuditLogEntry, 'id'>): DocumentData {
+        return log;
+    },
+    fromFirestore(
+        snapshot: QueryDocumentSnapshot,
+        options: SnapshotOptions
+    ): AuditLogEntry {
+        const data = snapshot.data(options);
+        return {
+            id: snapshot.id,
+            materialId: data.materialId,
+            materialName: data.materialName,
+            change: data.change,
+            type: data.type,
+            relatedId: data.relatedId,
+            createdAt: data.createdAt,
+        };
+    },
 };

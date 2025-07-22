@@ -55,4 +55,15 @@ export type PurchaseOrder = {
   location: string;
   createdAt: string; // ISO string
   receivedAt?: string; // ISO string
+  receiptImageUrl?: string;
+};
+
+export type AuditLogEntry = {
+    id: string;
+    materialId: string;
+    materialName: string;
+    change: number;
+    type: 'purchase' | 'sale' | 'adjustment';
+    relatedId: string; // POS Order ID or Purchase Order ID
+    createdAt: string; // ISO string
 };
