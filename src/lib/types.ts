@@ -9,6 +9,7 @@ export type Material = {
 export type DrinkRecipeItem = {
   materialId: string;
   quantity: number;
+  unit: Material['unit'];
 };
 
 export type Drink = {

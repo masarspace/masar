@@ -6,7 +6,7 @@ import {
   FieldValue,
   deleteField,
 } from 'firebase/firestore';
-import type { Material, Drink, Order, PurchaseCategory, PurchaseOrder, PurchaseOrderItem, AuditLogEntry } from './types';
+import type { Material, Drink, Order, PurchaseCategory, PurchaseOrder, PurchaseOrderItem, AuditLogEntry, DrinkRecipeItem } from './types';
 
 export const materialConverter: FirestoreDataConverter<Material> = {
   toFirestore(material: Material): DocumentData {
@@ -32,6 +32,8 @@ export const materialConverter: FirestoreDataConverter<Material> = {
 export const drinkConverter: FirestoreDataConverter<Drink> = {
   toFirestore(drink: Drink): DocumentData {
     const { id, ...data } = drink;
+    // Ensure recipe items are plain objects
+    data.recipe = data.recipe.map(item => ({...item}));
     return data;
   },
   fromFirestore(
@@ -43,7 +45,11 @@ export const drinkConverter: FirestoreDataConverter<Drink> = {
       id: snapshot.id,
       name: data.name,
       price: data.price,
-      recipe: data.recipe,
+      recipe: data.recipe.map((item: any) => ({
+        materialId: item.materialId,
+        quantity: item.quantity,
+        unit: item.unit,
+      })),
     };
   },
 };

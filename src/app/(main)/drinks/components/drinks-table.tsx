@@ -37,6 +37,15 @@ import { Label } from '@/components/ui/label';
 import { Checkbox } from '@/components/ui/checkbox';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+
+const unitCompatibility: Record<Material['unit'], Material['unit'][]> = {
+    'kg': ['kg', 'g'],
+    'g': ['kg', 'g'],
+    'l': ['l', 'ml'],
+    'ml': ['l', 'ml'],
+    'piece': ['piece'],
+};
 
 export function DrinksTable() {
   const [drinksSnapshot, drinksLoading] = useCollection(collection(db, 'drinks').withConverter(drinkConverter));
@@ -84,7 +93,10 @@ export function DrinksTable() {
 
   const handleRecipeChange = (materialId: string, checked: boolean | 'indeterminate') => {
     if (checked) {
-      setRecipe([...recipe, { materialId, quantity: 0 }]);
+      const material = allMaterials.find(m => m.id === materialId);
+      if(material) {
+          setRecipe([...recipe, { materialId, quantity: 0, unit: material.unit }]);
+      }
     } else {
       setRecipe(recipe.filter(item => item.materialId !== materialId));
     }
@@ -93,6 +105,11 @@ export function DrinksTable() {
   const handleQuantityChange = (materialId: string, quantity: number) => {
     setRecipe(recipe.map(item => item.materialId === materialId ? { ...item, quantity } : item));
   };
+  
+  const handleUnitChange = (materialId: string, unit: Material['unit']) => {
+    setRecipe(recipe.map(item => item.materialId === materialId ? { ...item, unit } : item));
+  };
+
 
   const handleFormSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -180,7 +197,7 @@ export function DrinksTable() {
                 <TableCell className="font-medium">{drink.name}</TableCell>
                 <TableCell>${drink.price.toFixed(2)}</TableCell>
                 <TableCell className="hidden md:table-cell">
-                  {drink.recipe.map(item => `${item.quantity}${allMaterials.find(m=>m.id === item.materialId)?.unit || ''} ${getMaterialName(item.materialId)}`).join(', ')}
+                  {drink.recipe.map(item => `${item.quantity}${item.unit} ${getMaterialName(item.materialId)}`).join(', ')}
                 </TableCell>
                 <TableCell className="text-right">
                   <DropdownMenu>
@@ -228,6 +245,7 @@ export function DrinksTable() {
                   <div className="space-y-4">
                     {allMaterials.map(material => {
                       const recipeItem = recipe.find(item => item.materialId === material.id);
+                      const compatibleUnits = unitCompatibility[material.unit] || [material.unit];
                       return (
                         <div key={material.id} className="flex items-center gap-4">
                            <Checkbox
@@ -248,7 +266,20 @@ export function DrinksTable() {
                                     min="0.01"
                                     required
                                 />
-                                <span className="text-sm text-muted-foreground">{material.unit}</span>
+                                <Select 
+                                    value={recipeItem.unit} 
+                                    onValueChange={(value) => handleUnitChange(material.id, value as Material['unit'])}
+                                    required
+                                >
+                                    <SelectTrigger className="w-24">
+                                        <SelectValue placeholder="Unit" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {compatibleUnits.map(unit => (
+                                            <SelectItem key={unit} value={unit}>{unit}</SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
                               </div>
                           )}
                         </div>
