@@ -3,7 +3,7 @@
 
 import * as React from 'react';
 import { useCollection } from 'react-firebase-hooks/firestore';
-import { collection, doc, runTransaction, query, orderBy, deleteField, updateDoc } from 'firebase/firestore';
+import { collection, doc, runTransaction, query, orderBy, deleteField, updateDoc, collectionGroup } from 'firebase/firestore';
 import { getStorage, ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { db } from '@/lib/firebase';
 import { purchaseOrderConverter, materialConverter, purchaseCategoryConverter, auditLogConverter } from '@/lib/converters';
@@ -155,6 +155,7 @@ export function PurchasingStatusTable() {
                     // Log audit
                     const auditLogRef = doc(collection(db, 'auditLog'));
                     transaction.set(auditLogRef.withConverter(auditLogConverter), {
+                        id: auditLogRef.id,
                         materialId: materialDoc.id,
                         materialName: materialData.name,
                         change: stockChange,

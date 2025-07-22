@@ -132,7 +132,11 @@ export const purchaseOrderConverter: FirestoreDataConverter<PurchaseOrder> = {
 
 
 export const auditLogConverter: FirestoreDataConverter<AuditLogEntry> = {
-    toFirestore(log: Omit<AuditLogEntry, 'id'>): DocumentData {
+    toFirestore(log: AuditLogEntry | Omit<AuditLogEntry, 'id'>): DocumentData {
+        if ('id' in log) {
+            const { id, ...data } = log;
+            return data;
+        }
         return log;
     },
     fromFirestore(
