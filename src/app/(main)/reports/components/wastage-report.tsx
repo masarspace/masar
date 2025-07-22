@@ -1,8 +1,9 @@
+
 "use client";
 
 import * as React from 'react';
 import { useCollection } from 'react-firebase-hooks/firestore';
-import { collection, query, where } from 'firebase/firestore';
+import { collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { auditLogConverter, materialConverter } from '@/lib/converters';
 import { Button } from '@/components/ui/button';
@@ -54,7 +55,7 @@ export function WastageReport() {
             where('createdAt', '<=', toDate.toISOString())
         ).withConverter(auditLogConverter);
 
-        const auditLogSnapshot = await auditLogQuery.get();
+        const auditLogSnapshot = await getDocs(auditLogQuery);
         const logs = auditLogSnapshot.docs.map(d => d.data());
 
         const reportMap = new Map<string, { purchased: number, sold: number }>();
