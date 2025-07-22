@@ -16,13 +16,27 @@ import {
 } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Input } from '@/components/ui/input';
+import { Search } from 'lucide-react';
 
 export function AuditLogTable() {
     const [logSnapshot, loading] = useCollection(
         query(collection(db, 'auditLog'), orderBy('createdAt', 'desc')).withConverter(auditLogConverter)
     );
+    const [searchTerm, setSearchTerm] = React.useState('');
     
-    const logs = React.useMemo(() => logSnapshot?.docs.map(doc => doc.data()) ?? [], [logSnapshot]);
+    const logs = React.useMemo(() => {
+        const baseLogs = logSnapshot?.docs.map(doc => doc.data()) ?? [];
+        if (!searchTerm) {
+            return baseLogs;
+        }
+        return baseLogs.filter(log =>
+            log.materialName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            log.type.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            log.relatedId.toLowerCase().includes(searchTerm.toLowerCase())
+        );
+    }, [logSnapshot, searchTerm]);
+
     const [formattedDates, setFormattedDates] = React.useState<Map<string, string>>(new Map());
 
     React.useEffect(() => {
@@ -44,44 +58,59 @@ export function AuditLogTable() {
 
     if(loading) {
         return (
-            <div className="rounded-md border">
-              <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>Date</TableHead>
-                    <TableHead>Material</TableHead>
-                    <TableHead>Type</TableHead>
-                    <TableHead>Change</TableHead>
-                    <TableHead>Related ID</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {[...Array(10)].map((_, i) => (
-                    <TableRow key={i}>
-                      <TableCell><Skeleton className="h-5 w-36" /></TableCell>
-                      <TableCell><Skeleton className="h-5 w-24" /></TableCell>
-                      <TableCell><Skeleton className="h-6 w-20 rounded-full" /></TableCell>
-                      <TableCell><Skeleton className="h-5 w-16" /></TableCell>
-                      <TableCell><Skeleton className="h-5 w-32" /></TableCell>
+            <div className="space-y-4">
+              <div className="flex justify-between items-center">
+                  <Skeleton className="h-10 w-64" />
+              </div>
+              <div className="rounded-md border">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Date</TableHead>
+                      <TableHead>Material</TableHead>
+                      <TableHead>Type</TableHead>
+                      <TableHead>Change</TableHead>
+                      <TableHead>Related ID</TableHead>
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+                  </TableHeader>
+                  <TableBody>
+                    {[...Array(10)].map((_, i) => (
+                      <TableRow key={i}>
+                        <TableCell><Skeleton className="h-5 w-36" /></TableCell>
+                        <TableCell><Skeleton className="h-5 w-24" /></TableCell>
+                        <TableCell><Skeleton className="h-6 w-20 rounded-full" /></TableCell>
+                        <TableCell><Skeleton className="h-5 w-16" /></TableCell>
+                        <TableCell><Skeleton className="h-5 w-32" /></TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
             </div>
         )
     }
 
     return (
-        <div className="rounded-md border">
-              <Table>
+        <div className="space-y-4">
+            <div className="relative w-full max-w-sm">
+                <Search className="absolute left-2.5 top-3 h-4 w-4 text-muted-foreground" />
+                <Input 
+                    placeholder="Search logs..."
+                    className="pl-8"
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                />
+            </div>
+            <div className="rounded-md border">
+                <Table>
                 <TableHeader>
-                  <TableRow>
+                    <TableRow>
                     <TableHead>Date</TableHead>
                     <TableHead>Material</TableHead>
                     <TableHead>Type</TableHead>
                     <TableHead>Change</TableHead>
                     <TableHead>Related ID</TableHead>
-                  </TableRow>
+                    </TableRow>
                 </TableHeader>
                 <TableBody>
                     {logs.map(log => (
@@ -100,8 +129,9 @@ export function AuditLogTable() {
                         </TableRow>
                     ))}
                 </TableBody>
-              </Table>
+                </Table>
             </div>
+        </div>
     )
 
 }
