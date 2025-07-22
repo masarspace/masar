@@ -237,16 +237,19 @@ export function DrinksTable() {
                            />
                           <Label htmlFor={`mat-${material.id}`} className="flex-1">{material.name}</Label>
                           {recipeItem && (
-                              <Input
-                                  type="number"
-                                  step="0.01"
-                                  className="w-32"
-                                  placeholder={`Qty (${material.unit})`}
-                                  defaultValue={recipeItem.quantity || ''}
-                                  onChange={(e) => handleQuantityChange(material.id, Number(e.target.value))}
-                                  min="0.01"
-                                  required
-                               />
+                              <div className="flex items-center gap-2">
+                                <Input
+                                    type="number"
+                                    step="0.01"
+                                    className="w-24"
+                                    placeholder="Qty"
+                                    defaultValue={recipeItem.quantity || ''}
+                                    onChange={(e) => handleQuantityChange(material.id, Number(e.target.value))}
+                                    min="0.01"
+                                    required
+                                />
+                                <span className="text-sm text-muted-foreground">{material.unit}</span>
+                              </div>
                           )}
                         </div>
                       )
