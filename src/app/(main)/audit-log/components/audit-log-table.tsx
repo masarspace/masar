@@ -17,25 +17,42 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Input } from '@/components/ui/input';
-import { Search } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Search, Calendar as CalendarIcon } from 'lucide-react';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Calendar } from '@/components/ui/calendar';
+import { format, startOfDay, endOfDay } from 'date-fns';
+import type { DateRange } from 'react-day-picker';
 
 export function AuditLogTable() {
     const [logSnapshot, loading] = useCollection(
         query(collection(db, 'auditLog'), orderBy('createdAt', 'desc')).withConverter(auditLogConverter)
     );
     const [searchTerm, setSearchTerm] = React.useState('');
+    const [dateRange, setDateRange] = React.useState<DateRange | undefined>();
     
     const logs = React.useMemo(() => {
-        const baseLogs = logSnapshot?.docs.map(doc => doc.data()) ?? [];
+        let baseLogs = logSnapshot?.docs.map(doc => doc.data()) ?? [];
+        
+        if (dateRange?.from) {
+            const fromDate = startOfDay(dateRange.from);
+            const toDate = dateRange.to ? endOfDay(dateRange.to) : endOfDay(dateRange.from);
+            baseLogs = baseLogs.filter(log => {
+                const logDate = new Date(log.createdAt);
+                return logDate >= fromDate && logDate <= toDate;
+            });
+        }
+
         if (!searchTerm) {
             return baseLogs;
         }
+
         return baseLogs.filter(log =>
             log.materialName.toLowerCase().includes(searchTerm.toLowerCase()) ||
             log.type.toLowerCase().includes(searchTerm.toLowerCase()) ||
             log.relatedId.toLowerCase().includes(searchTerm.toLowerCase())
         );
-    }, [logSnapshot, searchTerm]);
+    }, [logSnapshot, searchTerm, dateRange]);
 
     const [formattedDates, setFormattedDates] = React.useState<Map<string, string>>(new Map());
 
@@ -59,8 +76,9 @@ export function AuditLogTable() {
     if(loading) {
         return (
             <div className="space-y-4">
-              <div className="flex justify-between items-center">
+              <div className="flex justify-between items-center flex-wrap gap-2">
                   <Skeleton className="h-10 w-64" />
+                  <Skeleton className="h-10 w-48" />
               </div>
               <div className="rounded-md border">
                 <Table>
@@ -92,14 +110,50 @@ export function AuditLogTable() {
 
     return (
         <div className="space-y-4">
-            <div className="relative w-full max-w-sm">
-                <Search className="absolute left-2.5 top-3 h-4 w-4 text-muted-foreground" />
-                <Input 
-                    placeholder="Search logs..."
-                    className="pl-8"
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                />
+            <div className="flex items-center gap-2 flex-wrap">
+                <div className="relative w-full max-w-sm">
+                    <Search className="absolute left-2.5 top-3 h-4 w-4 text-muted-foreground" />
+                    <Input 
+                        placeholder="Search logs..."
+                        className="pl-8"
+                        value={searchTerm}
+                        onChange={(e) => setSearchTerm(e.target.value)}
+                    />
+                </div>
+                 <Popover>
+                  <PopoverTrigger asChild>
+                    <Button
+                      id="date"
+                      variant={"outline"}
+                      className="w-[260px] justify-start text-left font-normal"
+                    >
+                      <CalendarIcon className="mr-2 h-4 w-4" />
+                      {dateRange?.from ? (
+                        dateRange.to ? (
+                          <>
+                            {format(dateRange.from, "LLL dd, y")} -{" "}
+                            {format(dateRange.to, "LLL dd, y")}
+                          </>
+                        ) : (
+                          format(dateRange.from, "LLL dd, y")
+                        )
+                      ) : (
+                        <span>Pick a date range</span>
+                      )}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0" align="start">
+                    <Calendar
+                      initialFocus
+                      mode="range"
+                      defaultMonth={dateRange?.from}
+                      selected={dateRange}
+                      onSelect={setDateRange}
+                      numberOfMonths={2}
+                    />
+                  </PopoverContent>
+                </Popover>
+                {dateRange && <Button variant="ghost" onClick={() => setDateRange(undefined)}>Clear</Button>}
             </div>
             <div className="rounded-md border">
                 <Table>
