@@ -55,8 +55,10 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from "@/hooks/use-toast";
 import { Calendar } from '@/components/ui/calendar';
-import { format, addMonths, isAfter } from 'date-fns';
+import { format, addMonths, isAfter, startOfDay, endOfDay } from 'date-fns';
 import { Badge } from '@/components/ui/badge';
+import type { DateRange } from 'react-day-picker';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 
 export function ClientContractsTable() {
   const [snapshot, loading] = useCollection(query(collection(db, 'clientContracts'), orderBy('startDate', 'desc')).withConverter(clientContractConverter));
@@ -65,9 +67,16 @@ export function ClientContractsTable() {
 
   const [isSheetOpen, setIsSheetOpen] = React.useState(false);
   const [selectedClientContract, setSelectedClientContract] = React.useState<ClientContract | null>(null);
-  const [searchTerm, setSearchTerm] = React.useState('');
+  
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = React.useState(false);
   const { toast } = useToast();
+
+  // Filter State
+  const [searchTerm, setSearchTerm] = React.useState('');
+  const [dateRange, setDateRange] = React.useState<DateRange | undefined>();
+  const [contractFilter, setContractFilter] = React.useState<string>('all');
+  const [statusFilter, setStatusFilter] = React.useState<string>('all');
+
 
   // Form State
   const [selectedClientId, setSelectedClientId] = React.useState<string | undefined>();
@@ -81,15 +90,43 @@ export function ClientContractsTable() {
   const allContracts = React.useMemo(() => contractsSnapshot?.docs.map(doc => doc.data()) ?? [], [contractsSnapshot]);
 
   const clientContracts = React.useMemo(() => {
-    const baseContracts = snapshot?.docs.map(doc => doc.data()) ?? [];
-    if (!searchTerm) {
-      return baseContracts;
+    let baseContracts = snapshot?.docs.map(doc => {
+      const client = allClients.find(c => c.id === doc.data().clientId);
+      const contract = allContracts.find(c => c.id === doc.data().contractId);
+      return {
+        ...doc.data(),
+        clientPhone: client?.phoneNumber,
+        contractPeriod: contract?.period,
+      };
+    }) ?? [];
+
+    if (dateRange?.from) {
+      const fromDate = startOfDay(dateRange.from);
+      const toDate = dateRange.to ? endOfDay(dateRange.to) : endOfDay(dateRange.from);
+      baseContracts = baseContracts.filter(cc => {
+        const contractDate = new Date(cc.startDate);
+        return contractDate >= fromDate && contractDate <= toDate;
+      });
     }
-    return baseContracts.filter(cc => 
-      cc.clientName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      cc.contractName.toLowerCase().includes(searchTerm.toLowerCase())
-    );
-  }, [snapshot, searchTerm]);
+
+    if (contractFilter !== 'all') {
+      baseContracts = baseContracts.filter(cc => cc.contractId === contractFilter);
+    }
+    
+    if (statusFilter !== 'all') {
+      baseContracts = baseContracts.filter(cc => cc.status === statusFilter);
+    }
+
+    if (searchTerm) {
+      const lowercasedFilter = searchTerm.toLowerCase();
+      baseContracts = baseContracts.filter(cc => 
+        cc.clientName.toLowerCase().includes(lowercasedFilter) ||
+        cc.contractName.toLowerCase().includes(lowercasedFilter)
+      );
+    }
+
+    return baseContracts;
+  }, [snapshot, allClients, allContracts, searchTerm, dateRange, contractFilter, statusFilter]);
   
   React.useEffect(() => {
     if (selectedContractId && startDate) {
@@ -191,6 +228,13 @@ export function ClientContractsTable() {
       }
   };
 
+  const clearFilters = () => {
+    setSearchTerm('');
+    setDateRange(undefined);
+    setContractFilter('all');
+    setStatusFilter('all');
+  }
+
   const isLoading = loading || clientsLoading || contractsLoading;
 
   if (isLoading) {
@@ -205,7 +249,9 @@ export function ClientContractsTable() {
             <TableHeader>
               <TableRow>
                 <TableHead>Client</TableHead>
+                 <TableHead>Client Phone</TableHead>
                 <TableHead>Contract</TableHead>
+                 <TableHead>Period</TableHead>
                 <TableHead>Start Date</TableHead>
                 <TableHead>End Date</TableHead>
                 <TableHead>Status</TableHead>
@@ -213,10 +259,12 @@ export function ClientContractsTable() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {[...Array(3)].map((_, i) => (
+              {[...Array(5)].map((_, i) => (
                 <TableRow key={i}>
                   <TableCell><Skeleton className="h-5 w-32" /></TableCell>
                   <TableCell><Skeleton className="h-5 w-24" /></TableCell>
+                  <TableCell><Skeleton className="h-5 w-24" /></TableCell>
+                  <TableCell><Skeleton className="h-5 w-16" /></TableCell>
                   <TableCell><Skeleton className="h-5 w-24" /></TableCell>
                   <TableCell><Skeleton className="h-5 w-24" /></TableCell>
                   <TableCell><Skeleton className="h-6 w-20 rounded-full" /></TableCell>
@@ -232,15 +280,73 @@ export function ClientContractsTable() {
 
   return (
     <>
-      <div className="flex justify-between items-center mb-4 gap-4">
-        <div className="relative w-full max-w-sm">
-            <Search className="absolute left-2.5 top-3 h-4 w-4 text-muted-foreground" />
-            <Input 
-                placeholder="Search contracts..."
-                className="pl-8"
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-            />
+      <div className="flex justify-between items-center mb-4 gap-4 flex-wrap">
+        <div className="flex items-center gap-2 flex-wrap">
+            <div className="relative w-full max-w-sm">
+                <Search className="absolute left-2.5 top-3 h-4 w-4 text-muted-foreground" />
+                <Input 
+                    placeholder="Search client or contract..."
+                    className="pl-8"
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                />
+            </div>
+             <Popover>
+              <PopoverTrigger asChild>
+                <Button
+                  id="date"
+                  variant={"outline"}
+                  className="w-[260px] justify-start text-left font-normal"
+                >
+                  <CalendarIcon className="mr-2 h-4 w-4" />
+                  {dateRange?.from ? (
+                    dateRange.to ? (
+                      <>
+                        {format(dateRange.from, "LLL dd, y")} -{" "}
+                        {format(dateRange.to, "LLL dd, y")}
+                      </>
+                    ) : (
+                      format(dateRange.from, "LLL dd, y")
+                    )
+                  ) : (
+                    <span>Filter by date range</span>
+                  )}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-auto p-0" align="start">
+                <Calendar
+                  initialFocus
+                  mode="range"
+                  defaultMonth={dateRange?.from}
+                  selected={dateRange}
+                  onSelect={setDateRange}
+                  numberOfMonths={2}
+                />
+              </PopoverContent>
+            </Popover>
+            <Select value={contractFilter} onValueChange={setContractFilter}>
+                <SelectTrigger className="w-[180px]">
+                    <SelectValue placeholder="Filter by contract" />
+                </SelectTrigger>
+                <SelectContent>
+                    <SelectItem value="all">All Contracts</SelectItem>
+                    {allContracts.map(c => (
+                        <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                    ))}
+                </SelectContent>
+            </Select>
+             <Select value={statusFilter} onValueChange={setStatusFilter}>
+                <SelectTrigger className="w-[180px]">
+                    <SelectValue placeholder="Filter by status" />
+                </SelectTrigger>
+                <SelectContent>
+                    <SelectItem value="all">All Statuses</SelectItem>
+                    <SelectItem value="Active">Active</SelectItem>
+                    <SelectItem value="Expired">Expired</SelectItem>
+                    <SelectItem value="Cancelled">Cancelled</SelectItem>
+                </SelectContent>
+            </Select>
+            {(searchTerm || dateRange || contractFilter !== 'all' || statusFilter !== 'all') && <Button variant="ghost" onClick={clearFilters}>Clear Filters</Button>}
         </div>
         <Button onClick={handleAddClick}><PlusCircle className="mr-2 h-4 w-4" /> New Client Contract</Button>
       </div>
@@ -249,7 +355,9 @@ export function ClientContractsTable() {
           <TableHeader>
             <TableRow>
               <TableHead>Client</TableHead>
+              <TableHead>Client Phone</TableHead>
               <TableHead>Contract</TableHead>
+              <TableHead>Period</TableHead>
               <TableHead>Start Date</TableHead>
               <TableHead>End Date</TableHead>
               <TableHead>Status</TableHead>
@@ -262,7 +370,9 @@ export function ClientContractsTable() {
                 return (
                   <TableRow key={cc.id}>
                     <TableCell className="font-medium">{cc.clientName}</TableCell>
+                    <TableCell>{cc.clientPhone || 'N/A'}</TableCell>
                     <TableCell>{cc.contractName}</TableCell>
+                    <TableCell>{cc.contractPeriod} months</TableCell>
                     <TableCell>{format(new Date(cc.startDate), 'PP')}</TableCell>
                     <TableCell>{format(new Date(cc.endDate), 'PP')}</TableCell>
                     <TableCell><Badge variant={variant}>{cc.status}</Badge></TableCell>
