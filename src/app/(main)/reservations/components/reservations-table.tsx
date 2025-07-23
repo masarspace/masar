@@ -39,7 +39,6 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-  AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
 import {
   DropdownMenu,
@@ -87,6 +86,10 @@ export function ReservationsTable() {
   const [endHour, setEndHour] = React.useState(new Date().getHours().toString().padStart(2, '0'));
   const [endMinute, setEndMinute] = React.useState(new Date().getMinutes().toString().padStart(2, '0'));
   const [currentStatus, setCurrentStatus] = React.useState<Reservation['status']>('Pending');
+
+  // State for end session alert
+  const [endSessionAlertOpen, setEndSessionAlertOpen] = React.useState(false);
+  const [reservationToEnd, setReservationToEnd] = React.useState<Reservation | null>(null);
 
 
   const allClients = React.useMemo(() => clientsSnapshot?.docs.map(doc => doc.data()) ?? [], [clientsSnapshot]);
@@ -290,6 +293,41 @@ export function ReservationsTable() {
       setIsDatePickerOpen(true);
   }
 
+  const handleEndSessionClick = (reservation: Reservation) => {
+    setReservationToEnd(reservation);
+    setEndSessionAlertOpen(true);
+  };
+
+  const confirmEndSession = async () => {
+      if (!reservationToEnd) return;
+
+      const fullStartDate = new Date(reservationToEnd.startAt);
+      const finalEndDate = new Date(); // Use current time
+
+      const totalMinutes = Math.max(0, differenceInMinutes(finalEndDate, fullStartDate));
+      const durationInHours = totalMinutes / 60;
+      const pricePerHour = reservationToEnd.roomPrice;
+      const discountPercentage = reservationToEnd.roomDiscount;
+      const discountedPrice = pricePerHour * (1 - discountPercentage / 100);
+      const totalCost = durationInHours * discountedPrice;
+
+      const updateData: Partial<Reservation> = {
+          status: 'Completed',
+          endAt: finalEndDate.toISOString(),
+          totalCost: totalCost,
+      };
+
+      try {
+          await updateDoc(doc(db, 'reservations', reservationToEnd.id), updateData as any);
+          toast({ title: "Session Ended", description: "The reservation has been marked as completed."});
+      } catch (error: any) {
+          toast({ variant: "destructive", title: "Error ending session", description: error.message });
+      } finally {
+          setEndSessionAlertOpen(false);
+          setReservationToEnd(null);
+      }
+  }
+
   const isLoading = loading || clientsLoading || roomsLoading;
 
   if (isLoading) {
@@ -390,6 +428,11 @@ export function ReservationsTable() {
                        <DropdownMenuItem onClick={() => handleEditClick(res)}>
                         <Edit className="mr-2 h-4 w-4" /> Edit
                       </DropdownMenuItem>
+                       {(res.status === 'Pending' || res.status === 'Active') && (
+                        <DropdownMenuItem onClick={() => handleEndSessionClick(res)} className="text-destructive">
+                            <LogOut className="mr-2 h-4 w-4" /> End Session
+                        </DropdownMenuItem>
+                       )}
                     </DropdownMenuContent>
                   </DropdownMenu>
                 </TableCell>
@@ -424,6 +467,22 @@ export function ReservationsTable() {
                 </DialogFooter>
             </DialogContent>
        </Dialog>
+       
+       <AlertDialog open={endSessionAlertOpen} onOpenChange={setEndSessionAlertOpen}>
+            <AlertDialogContent>
+                <AlertDialogHeader>
+                <AlertDialogTitle>End Reservation Session?</AlertDialogTitle>
+                <AlertDialogDescription>
+                    This will mark the reservation as completed, set the end time to now, and calculate the total cost. This action cannot be undone.
+                </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogAction onClick={confirmEndSession}>Confirm</AlertDialogAction>
+                </AlertDialogFooter>
+            </AlertDialogContent>
+       </AlertDialog>
+
 
       <Sheet open={isSheetOpen} onOpenChange={setIsSheetOpen}>
         <SheetContent className="flex flex-col">
