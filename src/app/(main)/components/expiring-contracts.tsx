@@ -35,13 +35,12 @@ export function ExpiringContracts() {
         const today = startOfToday();
         const thirtyDaysFromNow = addDays(today, 30);
         
-        const allActiveContracts = snapshot.docs.map(doc => doc.data());
-        
-        return allActiveContracts.filter(contract => {
-            const endDate = new Date(contract.endDate);
-            // Ensure the contract's end date is after today but before 30 days from now
-            return endDate >= today && endDate <= thirtyDaysFromNow;
-        });
+        return snapshot.docs
+            .map(doc => doc.data())
+            .filter(contract => {
+                const endDate = new Date(contract.endDate);
+                return endDate >= today && endDate <= thirtyDaysFromNow;
+            });
 
     }, [snapshot, loading]);
 
