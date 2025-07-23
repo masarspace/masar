@@ -24,7 +24,6 @@ export function ExpiringContracts() {
     const today = startOfToday();
     const thirtyDaysFromNow = addDays(today, 30);
 
-    // Fetch all active contracts, and we will filter by date on the client
     const [snapshot, loading] = useCollection(
         query(
             collection(db, 'clientContracts'),
@@ -38,7 +37,6 @@ export function ExpiringContracts() {
         
         const allActiveContracts = snapshot.docs.map(doc => doc.data());
         
-        // Filter on the client to find contracts expiring in the next 30 days
         return allActiveContracts.filter(contract => {
             const endDate = new Date(contract.endDate);
             return isWithinInterval(endDate, { start: today, end: thirtyDaysFromNow });
@@ -46,27 +44,6 @@ export function ExpiringContracts() {
 
     }, [snapshot, today, thirtyDaysFromNow]);
 
-    if (loading) {
-        return (
-            <Card>
-                <CardHeader>
-                    <CardTitle className="flex items-center gap-2">
-                        <FileClock className="w-6 h-6" /> Contracts Ending Soon
-                    </CardTitle>
-                    <CardDescription>
-                        Contracts expiring in the next 30 days.
-                    </CardDescription>
-                </CardHeader>
-                <CardContent>
-                    <div className="space-y-2">
-                        <Skeleton className="h-6 w-full" />
-                        <Skeleton className="h-6 w-full" />
-                        <Skeleton className="h-6 w-full" />
-                    </div>
-                </CardContent>
-            </Card>
-        )
-    }
 
     return (
         <Card>
@@ -79,7 +56,13 @@ export function ExpiringContracts() {
                 </CardDescription>
             </CardHeader>
             <CardContent>
-                {expiringContracts.length > 0 ? (
+                {loading ? (
+                    <div className="space-y-2">
+                        <Skeleton className="h-6 w-full" />
+                        <Skeleton className="h-6 w-full" />
+                        <Skeleton className="h-6 w-1/2" />
+                    </div>
+                ) : expiringContracts.length > 0 ? (
                     <Table>
                         <TableHeader>
                             <TableRow>
@@ -94,7 +77,7 @@ export function ExpiringContracts() {
                                 return (
                                     <TableRow key={contract.id}>
                                         <TableCell>
-                                            <Link href="/clients" className="hover:underline text-primary">
+                                            <Link href="/client-contracts" className="hover:underline text-primary">
                                                 {contract.clientName}
                                             </Link>
                                         </TableCell>
