@@ -44,7 +44,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { format, differenceInMinutes, setHours, setMinutes } from 'date-fns';
 import { useToast } from "@/hooks/use-toast";
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Popover, PopoverContent, PopoverTrigger, PopoverPortal } from '@/components/ui/popover';
 import { Calendar } from '@/components/ui/calendar';
 
 export function ReservationsTable() {
@@ -350,12 +350,12 @@ export function ReservationsTable() {
                 </div>
                 <div className="space-y-2">
                     <Label>Reservation Start Date &amp; Time</Label>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
                         <Popover>
                             <PopoverTrigger asChild>
                                 <Button
                                 variant={"outline"}
-                                className="w-[260px] justify-start text-left font-normal"
+                                className="w-full sm:w-[260px] justify-start text-left font-normal"
                                 >
                                 <CalendarIcon className="mr-2 h-4 w-4" />
                                 {getFullStartDate() ? format(getFullStartDate()!, "PPP p") : <span>Pick a date</span>}
@@ -370,9 +370,11 @@ export function ReservationsTable() {
                                 />
                             </PopoverContent>
                         </Popover>
-                        <Input type="number" value={startHour} onChange={e => setStartHour(e.target.value)} min="0" max="23" className="w-20" placeholder="HH"/>
-                        <span>:</span>
-                        <Input type="number" value={startMinute} onChange={e => setStartMinute(e.target.value)} min="0" max="59" className="w-20" placeholder="MM" />
+                        <div className="flex items-center gap-1">
+                            <Input type="number" value={startHour} onChange={e => setStartHour(e.target.value)} min="0" max="23" className="w-20" placeholder="HH"/>
+                            <span>:</span>
+                            <Input type="number" value={startMinute} onChange={e => setStartMinute(e.target.value)} min="0" max="59" className="w-20" placeholder="MM" />
+                        </div>
                     </div>
                 </div>
               </div>
