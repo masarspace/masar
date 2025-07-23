@@ -55,11 +55,13 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { format, differenceInMinutes, setHours, setMinutes } from 'date-fns';
+import { format, differenceInMinutes, setHours, setMinutes, startOfDay, endOfDay } from 'date-fns';
 import { useToast } from "@/hooks/use-toast";
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Calendar } from '@/components/ui/calendar';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import type { DateRange } from 'react-day-picker';
 
 export function ReservationsTable() {
   const [snapshot, loading] = useCollection(query(collection(db, 'reservations'), orderBy('startAt', 'desc')).withConverter(reservationConverter));
@@ -69,10 +71,15 @@ export function ReservationsTable() {
   const [isSheetOpen, setIsSheetOpen] = React.useState(false);
   const [isDatePickerOpen, setIsDatePickerOpen] = React.useState(false);
   const [datePickerTarget, setDatePickerTarget] = React.useState<'start' | 'end'>('start');
-  const [searchTerm, setSearchTerm] = React.useState('');
   const { toast } = useToast();
   
   const [selectedReservation, setSelectedReservation] = React.useState<Reservation | null>(null);
+
+  // Filter State
+  const [searchTerm, setSearchTerm] = React.useState('');
+  const [dateRange, setDateRange] = React.useState<DateRange | undefined>();
+  const [statusFilter, setStatusFilter] = React.useState<string>('all');
+  const [roomFilter, setRoomFilter] = React.useState<string>('all');
 
   // State for the form
   const [clientSelectionMode, setClientSelectionMode] = React.useState<'existing' | 'new'>('existing');
@@ -101,15 +108,41 @@ export function ReservationsTable() {
   const allRooms = React.useMemo(() => roomsSnapshot?.docs.map(doc => doc.data()) ?? [], [roomsSnapshot]);
 
   const reservations = React.useMemo(() => {
-    const baseReservations = snapshot?.docs.map(doc => doc.data()) ?? [];
-    if (!searchTerm) {
-      return baseReservations;
+    let baseReservations = snapshot?.docs.map(doc => {
+        const client = allClients.find(c => c.id === doc.data().clientId);
+        const room = allRooms.find(r => r.id === doc.data().roomId);
+        return {
+            ...doc.data(),
+            clientPhoneNumber: client?.phoneNumber,
+            roomLocation: room?.locationName,
+        };
+    }) ?? [];
+
+    if (dateRange?.from) {
+        const fromDate = startOfDay(dateRange.from);
+        const toDate = dateRange.to ? endOfDay(dateRange.to) : endOfDay(dateRange.from);
+        baseReservations = baseReservations.filter(res => {
+            const resDate = new Date(res.startAt);
+            return resDate >= fromDate && resDate <= toDate;
+        });
     }
-    return baseReservations.filter(res => 
-      res.clientName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      res.roomName.toLowerCase().includes(searchTerm.toLowerCase())
-    );
-  }, [snapshot, searchTerm]);
+
+    if (statusFilter !== 'all') {
+        baseReservations = baseReservations.filter(res => res.status === statusFilter);
+    }
+    
+    if (roomFilter !== 'all') {
+        baseReservations = baseReservations.filter(res => res.roomId === roomFilter);
+    }
+
+    if (searchTerm) {
+      baseReservations = baseReservations.filter(res => 
+        res.clientName.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        res.roomName.toLowerCase().includes(searchTerm.toLowerCase())
+      );
+    }
+    return baseReservations;
+  }, [snapshot, searchTerm, dateRange, statusFilter, roomFilter, allClients, allRooms]);
   
   const getFullStartDate = React.useCallback(() => {
     if (!startDate) return null;
@@ -368,6 +401,13 @@ export function ReservationsTable() {
             setReservationToDelete(null);
         }
     };
+    
+    const clearFilters = () => {
+        setSearchTerm('');
+        setDateRange(undefined);
+        setRoomFilter('all');
+        setStatusFilter('all');
+    }
 
   const isLoading = loading || clientsLoading || roomsLoading;
 
@@ -383,7 +423,9 @@ export function ReservationsTable() {
             <TableHeader>
               <TableRow>
                 <TableHead>Client</TableHead>
+                <TableHead>Phone</TableHead>
                 <TableHead>Room</TableHead>
+                <TableHead>Location</TableHead>
                 <TableHead>Start Time</TableHead>
                 <TableHead>End Time</TableHead>
                 <TableHead>Cost</TableHead>
@@ -394,6 +436,8 @@ export function ReservationsTable() {
             <TableBody>
               {[...Array(5)].map((_, i) => (
                 <TableRow key={i}>
+                  <TableCell><Skeleton className="h-5 w-24" /></TableCell>
+                  <TableCell><Skeleton className="h-5 w-24" /></TableCell>
                   <TableCell><Skeleton className="h-5 w-24" /></TableCell>
                   <TableCell><Skeleton className="h-5 w-24" /></TableCell>
                   <TableCell><Skeleton className="h-5 w-36" /></TableCell>
@@ -412,15 +456,74 @@ export function ReservationsTable() {
 
   return (
     <>
-      <div className="flex justify-between items-center mb-4 gap-4">
-        <div className="relative w-full max-w-sm">
-            <Search className="absolute left-2.5 top-3 h-4 w-4 text-muted-foreground" />
-            <Input 
-                placeholder="Search by client or room..."
-                className="pl-8"
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-            />
+      <div className="flex justify-between items-center mb-4 gap-4 flex-wrap">
+        <div className="flex items-center gap-2 flex-wrap">
+            <div className="relative w-full max-w-xs">
+                <Search className="absolute left-2.5 top-3 h-4 w-4 text-muted-foreground" />
+                <Input 
+                    placeholder="Search client or room..."
+                    className="pl-8"
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                />
+            </div>
+             <Popover>
+              <PopoverTrigger asChild>
+                <Button
+                  id="date"
+                  variant={"outline"}
+                  className="w-[260px] justify-start text-left font-normal"
+                >
+                  <CalendarIcon className="mr-2 h-4 w-4" />
+                  {dateRange?.from ? (
+                    dateRange.to ? (
+                      <>
+                        {format(dateRange.from, "LLL dd, y")} -{" "}
+                        {format(dateRange.to, "LLL dd, y")}
+                      </>
+                    ) : (
+                      format(dateRange.from, "LLL dd, y")
+                    )
+                  ) : (
+                    <span>Filter by date</span>
+                  )}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-auto p-0" align="start">
+                <Calendar
+                  initialFocus
+                  mode="range"
+                  defaultMonth={dateRange?.from}
+                  selected={dateRange}
+                  onSelect={setDateRange}
+                  numberOfMonths={2}
+                />
+              </PopoverContent>
+            </Popover>
+            <Select value={roomFilter} onValueChange={setRoomFilter}>
+                <SelectTrigger className="w-[180px]">
+                    <SelectValue placeholder="Filter by room" />
+                </SelectTrigger>
+                <SelectContent>
+                    <SelectItem value="all">All Rooms</SelectItem>
+                    {allRooms.map(r => (
+                        <SelectItem key={r.id} value={r.id}>{r.name}</SelectItem>
+                    ))}
+                </SelectContent>
+            </Select>
+            <Select value={statusFilter} onValueChange={setStatusFilter}>
+                <SelectTrigger className="w-[180px]">
+                    <SelectValue placeholder="Filter by status" />
+                </SelectTrigger>
+                <SelectContent>
+                    <SelectItem value="all">All Statuses</SelectItem>
+                    <SelectItem value="Pending">Pending</SelectItem>
+                    <SelectItem value="Active">Active</SelectItem>
+                    <SelectItem value="Completed">Completed</SelectItem>
+                    <SelectItem value="Cancelled">Cancelled</SelectItem>
+                </SelectContent>
+            </Select>
+             {(searchTerm || dateRange || roomFilter !== 'all' || statusFilter !== 'all') && <Button variant="ghost" onClick={clearFilters}>Clear Filters</Button>}
         </div>
         <Button onClick={handleAddClick}><PlusCircle className="mr-2 h-4 w-4" /> New Reservation</Button>
       </div>
@@ -429,7 +532,9 @@ export function ReservationsTable() {
           <TableHeader>
             <TableRow>
               <TableHead>Client</TableHead>
+              <TableHead>Phone</TableHead>
               <TableHead>Room</TableHead>
+              <TableHead>Location</TableHead>
               <TableHead>Start Time</TableHead>
               <TableHead>End Time</TableHead>
               <TableHead>Cost</TableHead>
@@ -441,10 +546,12 @@ export function ReservationsTable() {
             {reservations.map((res) => (
               <TableRow key={res.id}>
                 <TableCell className="font-medium">{res.clientName}</TableCell>
+                <TableCell>{(res as any).clientPhoneNumber || 'N/A'}</TableCell>
                 <TableCell>
                   <div>{res.roomName}</div>
                   <div className="text-xs text-muted-foreground">${res.roomPrice.toFixed(2)}/hr {res.roomDiscount > 0 && `(-${res.roomDiscount}%)`}</div>
                 </TableCell>
+                <TableCell>{(res as any).roomLocation || 'N/A'}</TableCell>
                 <TableCell>{format(new Date(res.startAt), 'PPp')}</TableCell>
                 <TableCell>{res.endAt ? format(new Date(res.endAt), 'PPp') : 'Active'}</TableCell>
                 <TableCell>{res.totalCost ? `$${res.totalCost.toFixed(2)}` : 'N/A'}</TableCell>
@@ -718,3 +825,5 @@ export function ReservationsTable() {
     </>
   );
 }
+
+    
