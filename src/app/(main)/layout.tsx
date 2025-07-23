@@ -32,7 +32,8 @@ import {
   MapPin,
   BedDouble,
   FileSignature,
-  CalendarClock
+  CalendarClock,
+  UserCheck
 } from "lucide-react";
 import { usePathname } from "next/navigation";
 
@@ -111,6 +112,19 @@ export default function MainLayout({
                         <Link href="/clients">
                           <Users />
                           <span>Clients</span>
+                        </Link>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                     <SidebarMenuItem>
+                      <SidebarMenuButton
+                        asChild
+                        href="/client-contracts"
+                        isActive={pathname.startsWith("/client-contracts")}
+                        tooltip="Client Contracts"
+                      >
+                        <Link href="/client-contracts">
+                          <UserCheck />
+                          <span>Client Contracts</span>
                         </Link>
                       </SidebarMenuButton>
                     </SidebarMenuItem>

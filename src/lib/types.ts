@@ -124,3 +124,14 @@ export type Reservation = {
     status: 'Pending' | 'Active' | 'Completed' | 'Cancelled';
     totalCost: number | null;
 };
+
+export type ClientContract = {
+    id: string;
+    clientId: string;
+    clientName: string;
+    contractId: string;
+    contractName: string;
+    startDate: string; // ISO string
+    endDate: string; // ISO string
+    status: 'Active' | 'Expired' | 'Cancelled';
+};
