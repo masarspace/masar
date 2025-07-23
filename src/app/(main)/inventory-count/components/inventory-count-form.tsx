@@ -3,7 +3,7 @@
 
 import * as React from 'react';
 import { useCollection } from 'react-firebase-hooks/firestore';
-import { collection, addDoc, doc, runTransaction, query, getDocs, where } from 'firebase/firestore';
+import { collection, addDoc, doc, runTransaction, query, getDocs, where, orderBy } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { materialConverter, inventoryCountConverter, auditLogConverter } from '@/lib/converters';
 import type { Material, InventoryCount, InventoryCountItem } from '@/lib/types';
@@ -346,7 +346,7 @@ export function InventoryCountForm() {
                         <DialogTitle>{isConfirmOpen ? "Confirm Inventory & Adjust Stock" : `Wastage Report - ${reportData ? format(new Date(reportData.date), "PPp"): ''}`}</DialogTitle>
                         <DialogDescription>
                             {isConfirmOpen 
-                                ? (isToday(getFullCountDate()!) ? "Review the calculated wastage. Saving will update your stock levels and create adjustment logs." : "This is a historical count. Saving will create a wastage report but will NOT adjust current stock levels.")
+                                ? (getFullCountDate() && isToday(getFullCountDate()!) ? "Review the calculated wastage. Saving will update your stock levels and create adjustment logs." : "This is a historical count. Saving will create a wastage report but will NOT adjust current stock levels.")
                                 : "A detailed report of the inventory count performed."
                             }
                         </DialogDescription>
@@ -391,6 +391,8 @@ export function InventoryCountForm() {
         </div>
     );
 }
+
+    
 
     
 
