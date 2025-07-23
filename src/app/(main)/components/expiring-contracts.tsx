@@ -33,7 +33,7 @@ export function ExpiringContracts() {
     );
 
     const expiringContracts = React.useMemo(() => {
-        if (!snapshot) return [];
+        if (loading || !snapshot) return [];
         
         const allActiveContracts = snapshot.docs.map(doc => doc.data());
         
@@ -42,7 +42,7 @@ export function ExpiringContracts() {
             return isWithinInterval(endDate, { start: today, end: thirtyDaysFromNow });
         });
 
-    }, [snapshot, today, thirtyDaysFromNow]);
+    }, [snapshot, loading, today, thirtyDaysFromNow]);
 
 
     return (
@@ -58,9 +58,15 @@ export function ExpiringContracts() {
             <CardContent>
                 {loading ? (
                     <div className="space-y-2">
-                        <Skeleton className="h-6 w-full" />
-                        <Skeleton className="h-6 w-full" />
-                        <Skeleton className="h-6 w-1/2" />
+                        {[...Array(3)].map((_, i) => (
+                           <div key={i} className="flex justify-between items-center p-2">
+                               <div className="space-y-1">
+                                    <Skeleton className="h-5 w-32" />
+                                    <Skeleton className="h-4 w-24" />
+                               </div>
+                               <Skeleton className="h-5 w-28" />
+                           </div>
+                        ))}
                     </div>
                 ) : expiringContracts.length > 0 ? (
                     <Table>
