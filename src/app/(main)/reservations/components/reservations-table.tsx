@@ -197,7 +197,7 @@ export function ReservationsTable() {
 
         if (currentStatus === 'Completed') {
             const finalEndDate = fullEndDate || new Date();
-            if (finalEndDate < fullStartDate) {
+             if (finalEndDate < fullStartDate) {
                 toast({ variant: 'destructive', title: 'End date cannot be before start date.' });
                 return;
             }
@@ -453,7 +453,15 @@ export function ReservationsTable() {
               mode="single"
               selected={datePickerTarget === 'start' ? startDate : endDate}
               onSelect={
-                datePickerTarget === 'start' ? setStartDate : setEndDate
+                (date) => {
+                    if (date) {
+                        if (datePickerTarget === 'start') {
+                            setStartDate(date);
+                        } else {
+                            setEndDate(date);
+                        }
+                    }
+                }
               }
               initialFocus
             />
