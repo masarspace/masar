@@ -8,6 +8,7 @@ import {
 import { OverviewChart } from './components/overview-chart';
 import { RecentOrders } from './components/recent-orders';
 import { DashboardStats } from './components/dashboard-stats';
+import { ExpiringContracts } from './components/expiring-contracts';
 
 export default function DashboardPage() {
   
@@ -45,6 +46,9 @@ export default function DashboardPage() {
             <RecentOrders />
           </CardContent>
         </Card>
+      </div>
+      <div>
+        <ExpiringContracts />
       </div>
     </div>
   );
