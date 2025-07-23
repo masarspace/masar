@@ -38,6 +38,7 @@ import { Separator } from '@/components/ui/separator';
 type CountInput = {
     materialId: string;
     countedStock: string;
+    systemStock: number; // Capture system stock at the time of rendering
 }
 
 export function InventoryCountForm() {
@@ -56,7 +57,8 @@ export function InventoryCountForm() {
 
     React.useEffect(() => {
         if (allMaterials.length > 0) {
-            setCounts(allMaterials.map(m => ({ materialId: m.id, countedStock: ''})));
+            // When materials load, create the form state, capturing the current system stock
+            setCounts(allMaterials.map(m => ({ materialId: m.id, countedStock: '', systemStock: m.stock })));
         }
     }, [allMaterials]);
 
@@ -79,7 +81,8 @@ export function InventoryCountForm() {
         const newReportItems: InventoryCountItem[] = itemsToSave.map(item => {
             const material = allMaterials.find(m => m.id === item.materialId)!;
             const countedStock = parseFloat(item.countedStock);
-            const systemStock = material.stock;
+            // Use the system stock that was captured when the form was loaded
+            const systemStock = item.systemStock;
             const wastage = systemStock - countedStock;
             return {
                 materialId: material.id,
@@ -92,7 +95,7 @@ export function InventoryCountForm() {
         });
         
         setReportData({
-            id: '',
+            id: '', // temp ID
             date: countDate.toISOString(),
             items: newReportItems
         });
@@ -107,11 +110,14 @@ export function InventoryCountForm() {
         try {
             await runTransaction(db, async (transaction) => {
                 const countRef = doc(collection(db, 'inventoryCounts'));
+                // Save the report data, which includes the historically accurate systemStock
                 transaction.set(countRef.withConverter(inventoryCountConverter), { ...reportData, id: countRef.id });
 
                 for(const item of reportData.items) {
-                    if (item.wastage !== 0) { // Only adjust if there's a difference
+                    // We only update the stock level and create an audit log if there is a difference
+                    if (item.wastage !== 0) {
                         const materialRef = doc(db, 'materials', item.materialId);
+                        // The stock is updated to the new physical count
                         transaction.update(materialRef, { stock: item.countedStock });
 
                         const auditLogRef = doc(collection(db, 'auditLog'));
@@ -119,7 +125,7 @@ export function InventoryCountForm() {
                             id: auditLogRef.id,
                             materialId: item.materialId,
                             materialName: item.materialName,
-                            change: -item.wastage, // Log the change needed to correct stock
+                            change: -item.wastage, // Log the change needed to correct stock (e.g., wastage of 5 means change of -5)
                             type: 'adjustment',
                             relatedId: countRef.id,
                             createdAt: new Date().toISOString()
@@ -130,8 +136,8 @@ export function InventoryCountForm() {
             toast({ title: 'Inventory count saved and stock adjusted successfully!' });
             setIsConfirmOpen(false);
             setReportData(null);
-            // Reset form
-            setCounts(allMaterials.map(m => ({ materialId: m.id, countedStock: ''})));
+            // Reset form: re-capture the latest system stock
+            setCounts(allMaterials.map(m => ({ materialId: m.id, countedStock: '', systemStock: m.stock })));
 
         } catch (error: any) {
             toast({ variant: "destructive", title: "Error saving count", description: error.message });
@@ -191,11 +197,11 @@ export function InventoryCountForm() {
                         </TableHeader>
                         <TableBody>
                             {allMaterials.map((material) => {
-                                const countValue = counts.find(c => c.materialId === material.id)?.countedStock ?? '';
+                                const countInput = counts.find(c => c.materialId === material.id);
                                 return (
                                 <TableRow key={material.id}>
                                     <TableCell className="font-medium">{material.name}</TableCell>
-                                    <TableCell>{material.stock.toFixed(2)} {material.unit}</TableCell>
+                                    <TableCell>{countInput ? `${countInput.systemStock.toFixed(2)} ${material.unit}` : 'Loading...'}</TableCell>
                                     <TableCell>
                                         <div className="flex items-center gap-2">
                                             <Input 
@@ -203,7 +209,7 @@ export function InventoryCountForm() {
                                                 step="any" 
                                                 className="w-32"
                                                 placeholder="Enter count"
-                                                value={countValue}
+                                                value={countInput?.countedStock ?? ''}
                                                 onChange={(e) => handleCountChange(material.id, e.target.value)}
                                             />
                                             <span>{material.unit}</span>
