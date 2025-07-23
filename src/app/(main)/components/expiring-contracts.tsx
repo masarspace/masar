@@ -6,7 +6,7 @@ import { useCollection } from 'react-firebase-hooks/firestore';
 import { collection, query, where, orderBy } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { clientContractConverter } from '@/lib/converters';
-import { differenceInDays, format, startOfToday, addDays } from 'date-fns';
+import { differenceInDays, format, startOfToday, addDays, isWithinInterval } from 'date-fns';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import {
   Table,
@@ -19,6 +19,7 @@ import {
 import { Skeleton } from '@/components/ui/skeleton';
 import { FileClock } from 'lucide-react';
 import Link from 'next/link';
+import type { ClientContract } from '@/lib/types';
 
 export function ExpiringContracts() {
     const [snapshot, loading] = useCollection(
@@ -39,8 +40,7 @@ export function ExpiringContracts() {
             .map(doc => doc.data())
             .filter(contract => {
                 const endDate = new Date(contract.endDate);
-                // Check if the contract's end date is between today and 30 days from now.
-                return endDate >= today && endDate <= thirtyDaysFromNow;
+                return isWithinInterval(endDate, { start: today, end: thirtyDaysFromNow });
             });
 
     }, [snapshot]);
