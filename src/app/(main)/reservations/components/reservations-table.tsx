@@ -81,7 +81,7 @@ export function ReservationsTable() {
   const [startDate, setStartDate] = React.useState<Date | undefined>(new Date());
   const [startHour, setStartHour] = React.useState(new Date().getHours().toString().padStart(2, '0'));
   const [startMinute, setStartMinute] = React.useState(new Date().getMinutes().toString().padStart(2, '0'));
-  const [currentStatus, setCurrentStatus] = React.useState<Reservation['status']>('Active');
+  const [currentStatus, setCurrentStatus] = React.useState<Reservation['status']>('Pending');
 
 
   const allClients = React.useMemo(() => clientsSnapshot?.docs.map(doc => doc.data()) ?? [], [clientsSnapshot]);
@@ -118,7 +118,7 @@ export function ReservationsTable() {
     setStartDate(now);
     setStartHour(now.getHours().toString().padStart(2, '0'));
     setStartMinute(now.getMinutes().toString().padStart(2, '0'));
-    setCurrentStatus('Active');
+    setCurrentStatus('Pending');
   };
   
   React.useEffect(() => {
@@ -192,7 +192,7 @@ export function ReservationsTable() {
         roomDiscount: room.discount || 0,
         startAt: fullStartDate.toISOString(),
         endAt: null,
-        status: 'Active',
+        status: 'Pending',
         totalCost: null,
     };
 
@@ -323,7 +323,12 @@ export function ReservationsTable() {
                 <TableCell>{res.endAt ? format(new Date(res.endAt), 'PPp') : 'Active'}</TableCell>
                 <TableCell>{res.totalCost ? `$${res.totalCost.toFixed(2)}` : 'N/A'}</TableCell>
                  <TableCell>
-                  <Badge variant={res.status === 'Completed' ? 'default' : res.status === 'Active' ? 'secondary' : 'destructive'}>
+                  <Badge variant={
+                      res.status === 'Completed' ? 'default' 
+                      : res.status === 'Active' ? 'secondary' 
+                      : res.status === 'Pending' ? 'outline'
+                      : 'destructive'
+                    }>
                     {res.status}
                   </Badge>
                 </TableCell>
@@ -421,6 +426,7 @@ export function ReservationsTable() {
                                 <SelectValue placeholder="Select a status" />
                                 </SelectTrigger>
                                 <SelectContent>
+                                    <SelectItem value="Pending">Pending</SelectItem>
                                     <SelectItem value="Active">Active</SelectItem>
                                     <SelectItem value="Completed">Completed</SelectItem>
                                     <SelectItem value="Cancelled">Cancelled</SelectItem>
@@ -501,5 +507,3 @@ export function ReservationsTable() {
     </>
   );
 }
-
-    
