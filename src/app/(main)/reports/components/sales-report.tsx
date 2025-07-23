@@ -57,13 +57,13 @@ export function SalesReport() {
         
         const ordersQuery = query(
             collection(db, 'orders'),
-            where('status', '==', 'Completed'),
             where('createdAt', '>=', fromDate.toISOString()),
             where('createdAt', '<=', toDate.toISOString())
         ).withConverter(orderConverter);
 
         const ordersSnapshot = await getDocs(ordersQuery);
-        const completedOrders = ordersSnapshot.docs.map(d => d.data());
+        const ordersInRange = ordersSnapshot.docs.map(d => d.data());
+        const completedOrders = ordersInRange.filter(order => order.status === 'Completed');
 
         let totalRevenue = 0;
         const drinksSoldMap = new Map<string, { name: string, quantity: number, revenue: number }>();
