@@ -6,7 +6,7 @@ import {
   FieldValue,
   deleteField,
 } from 'firebase/firestore';
-import type { Material, Drink, Order, PurchaseCategory, PurchaseOrder, PurchaseOrderItem, AuditLogEntry, DrinkRecipeItem, InventoryCount, InventoryCountItem } from './types';
+import type { Material, Drink, Order, PurchaseCategory, PurchaseOrder, PurchaseOrderItem, AuditLogEntry, DrinkRecipeItem, InventoryCount, InventoryCountItem, Client, Location, Room, Contract } from './types';
 
 export const materialConverter: FirestoreDataConverter<Material> = {
   toFirestore(material: Material): DocumentData {
@@ -186,6 +186,69 @@ export const inventoryCountConverter: FirestoreDataConverter<InventoryCount> = {
         systemStock: item.systemStock,
         wastage: item.wastage,
       })),
+    };
+  },
+};
+
+export const clientConverter: FirestoreDataConverter<Client> = {
+  toFirestore(client: Client): DocumentData {
+    const { id, ...data } = client;
+    return data;
+  },
+  fromFirestore(snapshot: QueryDocumentSnapshot, options: SnapshotOptions): Client {
+    const data = snapshot.data(options);
+    return {
+      id: snapshot.id,
+      name: data.name,
+      phoneNumber: data.phoneNumber,
+    };
+  },
+};
+
+export const locationConverter: FirestoreDataConverter<Location> = {
+  toFirestore(location: Location): DocumentData {
+    const { id, ...data } = location;
+    return data;
+  },
+  fromFirestore(snapshot: QueryDocumentSnapshot, options: SnapshotOptions): Location {
+    const data = snapshot.data(options);
+    return {
+      id: snapshot.id,
+      name: data.name,
+    };
+  },
+};
+
+export const roomConverter: FirestoreDataConverter<Room> = {
+  toFirestore(room: Room): DocumentData {
+    const { id, ...data } = room;
+    return data;
+  },
+  fromFirestore(snapshot: QueryDocumentSnapshot, options: SnapshotOptions): Room {
+    const data = snapshot.data(options);
+    return {
+      id: snapshot.id,
+      name: data.name,
+      price: data.price,
+      discount: data.discount,
+      locationId: data.locationId,
+      locationName: data.locationName,
+    };
+  },
+};
+
+export const contractConverter: FirestoreDataConverter<Contract> = {
+  toFirestore(contract: Contract): DocumentData {
+    const { id, ...data } = contract;
+    return data;
+  },
+  fromFirestore(snapshot: QueryDocumentSnapshot, options: SnapshotOptions): Contract {
+    const data = snapshot.data(options);
+    return {
+      id: snapshot.id,
+      name: data.name,
+      type: data.type,
+      period: data.period,
     };
   },
 };

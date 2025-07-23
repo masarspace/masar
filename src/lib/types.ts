@@ -83,3 +83,30 @@ export type InventoryCount = {
     date: string; // ISO string
     items: InventoryCountItem[];
 };
+
+export type Client = {
+    id: string;
+    name: string;
+    phoneNumber?: string;
+};
+
+export type Location = {
+    id: string;
+    name: string;
+};
+
+export type Room = {
+    id: string;
+    name: string;
+    price: number;
+    discount?: number;
+    locationId: string;
+    locationName: string;
+};
+
+export type Contract = {
+    id: string;
+    name: string;
+    type: 'short' | 'long';
+    period: 3 | 6 | 12;
+};

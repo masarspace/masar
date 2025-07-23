@@ -28,6 +28,10 @@ import {
   FileText,
   History,
   Boxes,
+  Users,
+  MapPin,
+  BedDouble,
+  FileSignature,
 } from "lucide-react";
 import { usePathname } from "next/navigation";
 
@@ -76,6 +80,68 @@ export default function MainLayout({
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>
+              
+              <SidebarSeparator />
+              
+              <SidebarGroup>
+                <SidebarGroupLabel>Management</SidebarGroupLabel>
+                <SidebarGroupContent>
+                  <SidebarMenu>
+                    <SidebarMenuItem>
+                      <SidebarMenuButton
+                        asChild
+                        href="/clients"
+                        isActive={pathname.startsWith("/clients")}
+                        tooltip="Clients"
+                      >
+                        <Link href="/clients">
+                          <Users />
+                          <span>Clients</span>
+                        </Link>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                    <SidebarMenuItem>
+                      <SidebarMenuButton
+                        asChild
+                        href="/locations"
+                        isActive={pathname.startsWith("/locations")}
+                        tooltip="Locations"
+                      >
+                        <Link href="/locations">
+                          <MapPin />
+                          <span>Locations</span>
+                        </Link>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                    <SidebarMenuItem>
+                      <SidebarMenuButton
+                        asChild
+                        href="/rooms"
+                        isActive={pathname.startsWith("/rooms")}
+                        tooltip="Rooms"
+                      >
+                        <Link href="/rooms">
+                          <BedDouble />
+                          <span>Rooms</span>
+                        </Link>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                    <SidebarMenuItem>
+                      <SidebarMenuButton
+                        asChild
+                        href="/contracts"
+                        isActive={pathname.startsWith("/contracts")}
+                        tooltip="Contracts"
+                      >
+                        <Link href="/contracts">
+                          <FileSignature />
+                          <span>Contracts</span>
+                        </Link>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  </SidebarMenu>
+                </SidebarGroupContent>
+              </SidebarGroup>
 
               <SidebarSeparator />
 
