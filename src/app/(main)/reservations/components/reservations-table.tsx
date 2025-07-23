@@ -65,7 +65,6 @@ export function ReservationsTable() {
   const [startDate, setStartDate] = React.useState<Date | undefined>(new Date());
   const [startHour, setStartHour] = React.useState(new Date().getHours().toString().padStart(2, '0'));
   const [startMinute, setStartMinute] = React.useState(new Date().getMinutes().toString().padStart(2, '0'));
-  const [isCalendarOpen, setIsCalendarOpen] = React.useState(false);
 
 
   const allClients = React.useMemo(() => clientsSnapshot?.docs.map(doc => doc.data()) ?? [], [clientsSnapshot]);
@@ -351,34 +350,29 @@ export function ReservationsTable() {
                 </div>
                 <div className="space-y-2">
                     <Label>Reservation Start Date &amp; Time</Label>
-                    <div className="flex items-center gap-2 flex-wrap">
-                        <Popover open={isCalendarOpen} onOpenChange={setIsCalendarOpen}>
+                    <div className="flex items-center gap-2">
+                        <Popover>
                             <PopoverTrigger asChild>
                                 <Button
                                 variant={"outline"}
-                                className="w-full sm:w-auto flex-grow justify-start text-left font-normal"
+                                className="w-[260px] justify-start text-left font-normal"
                                 >
                                 <CalendarIcon className="mr-2 h-4 w-4" />
-                                {getFullStartDate() ? format(getFullStartDate()!, "PPp") : <span>Pick a date & time</span>}
+                                {getFullStartDate() ? format(getFullStartDate()!, "PPP p") : <span>Pick a date</span>}
                                 </Button>
                             </PopoverTrigger>
                             <PopoverContent className="w-auto p-0" align="start">
                                 <Calendar
                                 mode="single"
                                 selected={startDate}
-                                onSelect={(date) => {
-                                    setStartDate(date);
-                                    setIsCalendarOpen(false);
-                                }}
+                                onSelect={setStartDate}
                                 initialFocus
                                 />
                             </PopoverContent>
                         </Popover>
-                        <div className="flex items-center gap-2">
-                            <Input type="number" value={startHour} onChange={e => setStartHour(e.target.value)} min="0" max="23" className="w-20" placeholder="HH"/>
-                            <span>:</span>
-                            <Input type="number" value={startMinute} onChange={e => setStartMinute(e.target.value)} min="0" max="59" className="w-20" placeholder="MM" />
-                        </div>
+                        <Input type="number" value={startHour} onChange={e => setStartHour(e.target.value)} min="0" max="23" className="w-20" placeholder="HH"/>
+                        <span>:</span>
+                        <Input type="number" value={startMinute} onChange={e => setStartMinute(e.target.value)} min="0" max="59" className="w-20" placeholder="MM" />
                     </div>
                 </div>
               </div>
