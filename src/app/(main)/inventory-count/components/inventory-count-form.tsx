@@ -137,34 +137,42 @@ export function InventoryCountForm() {
         try {
             await runTransaction(db, async (transaction) => {
                 const countRef = doc(collection(db, 'inventoryCounts'));
-                // Save the report data, which includes the historically accurate systemStock
+
+                const itemsWithChanges = reportData.items.filter(item => (item.countedStock - item.systemStock) !== 0);
+                
+                // --- READ PHASE ---
+                const materialRefs = itemsWithChanges.map(item => doc(db, 'materials', item.materialId).withConverter(materialConverter));
+                const materialDocs = await Promise.all(materialRefs.map(ref => transaction.get(ref)));
+
+                const materialMap = new Map(materialDocs.map(doc => [doc.id, doc]));
+
+                // --- WRITE PHASE ---
+                // 1. Set the inventory count report
                 transaction.set(countRef.withConverter(inventoryCountConverter), { ...reportData, id: countRef.id });
 
-                for(const item of reportData.items) {
-                    const changeRequired = item.countedStock - item.systemStock;
-                    
-                    if (changeRequired !== 0) {
-                        const materialRef = doc(db, 'materials', item.materialId);
-                        
-                        // We need to fetch the *current* material doc inside the transaction
-                        const materialDoc = await transaction.get(materialRef.withConverter(materialConverter));
-                        if (!materialDoc.exists()) throw new Error(`Material ${item.materialName} not found`);
-                        const currentStock = materialDoc.data().stock;
-
-                        // The stock is updated based on the physical count
-                        transaction.update(materialRef, { stock: currentStock + changeRequired });
-
-                        const auditLogRef = doc(collection(db, 'auditLog'));
-                        transaction.set(auditLogRef.withConverter(auditLogConverter), {
-                            id: auditLogRef.id,
-                            materialId: item.materialId,
-                            materialName: item.materialName,
-                            change: changeRequired,
-                            type: 'adjustment',
-                            relatedId: countRef.id,
-                            createdAt: reportData.date // Use the count date for the audit log
-                        });
+                // 2. Update materials and create audit logs
+                for(const item of itemsWithChanges) {
+                    const materialDoc = materialMap.get(item.materialId);
+                    if (!materialDoc || !materialDoc.exists()) {
+                        throw new Error(`Material ${item.materialName} not found during transaction.`);
                     }
+
+                    const changeRequired = item.countedStock - item.systemStock;
+                    const currentStock = materialDoc.data().stock;
+                    
+                    // The stock is updated based on the physical count, adjusted for changes that happened since the count date
+                    transaction.update(materialDoc.ref, { stock: currentStock + changeRequired });
+
+                    const auditLogRef = doc(collection(db, 'auditLog'));
+                    transaction.set(auditLogRef.withConverter(auditLogConverter), {
+                        id: auditLogRef.id,
+                        materialId: item.materialId,
+                        materialName: item.materialName,
+                        change: changeRequired,
+                        type: 'adjustment',
+                        relatedId: countRef.id,
+                        createdAt: reportData.date // Use the count date for the audit log
+                    });
                 }
             });
             toast({ title: 'Inventory count saved and stock adjusted successfully!' });
@@ -355,4 +363,5 @@ export function InventoryCountForm() {
     );
 }
 
+    
     
