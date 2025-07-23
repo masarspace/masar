@@ -14,7 +14,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { useToast } from "@/hooks/use-toast";
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Calendar } from '@/components/ui/calendar';
-import { Calendar as CalendarIcon, Save, AlertCircle, FileText, RefreshCw } from 'lucide-react';
+import { Calendar as CalendarIcon, Save, AlertCircle, FileText, RefreshCw, Download } from 'lucide-react';
 import { format, startOfDay, endOfDay, isToday, setHours, setMinutes } from 'date-fns';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import {
@@ -34,6 +34,9 @@ import {
     DialogFooter,
 } from '@/components/ui/dialog';
 import { Separator } from '@/components/ui/separator';
+import type { DateRange } from 'react-day-picker';
+import * as XLSX from 'xlsx';
+
 
 type CountInput = {
     materialId: string;
@@ -42,10 +45,9 @@ type CountInput = {
 
 export function InventoryCountForm() {
     const [materialsSnapshot, materialsLoading] = useCollection(collection(db, 'materials').withConverter(materialConverter));
-    const [countsSnapshot, countsLoading] = useCollection(query(collection(db, 'inventoryCounts'), orderBy('date', 'desc')).withConverter(inventoryCountConverter));
+    const [allCountsSnapshot, allCountsLoading] = useCollection(query(collection(db, 'inventoryCounts'), orderBy('date', 'desc')).withConverter(inventoryCountConverter));
     
     const allMaterials = React.useMemo(() => materialsSnapshot?.docs.map(doc => doc.data()) ?? [], [materialsSnapshot]);
-    const previousCounts = React.useMemo(() => countsSnapshot?.docs.map(doc => doc.data()) ?? [], [countsSnapshot]);
 
     const [countDate, setCountDate] = React.useState<Date | undefined>(new Date());
     const [isSubmitting, setIsSubmitting] = React.useState(false);
@@ -55,6 +57,20 @@ export function InventoryCountForm() {
     const [reportData, setReportData] = React.useState<InventoryCount | null>(null);
     const [hour, setHour] = React.useState(new Date().getHours().toString().padStart(2,'0'));
     const [minute, setMinute] = React.useState(new Date().getMinutes().toString().padStart(2,'0'));
+    const [previousCountsDateRange, setPreviousCountsDateRange] = React.useState<DateRange | undefined>();
+
+    const previousCounts = React.useMemo(() => {
+        let baseCounts = allCountsSnapshot?.docs.map(doc => doc.data()) ?? [];
+        if (previousCountsDateRange?.from) {
+            const fromDate = startOfDay(previousCountsDateRange.from);
+            const toDate = previousCountsDateRange.to ? endOfDay(previousCountsDateRange.to) : endOfDay(previousCountsDateRange.from);
+            baseCounts = baseCounts.filter(count => {
+                const countDate = new Date(count.date);
+                return countDate >= fromDate && countDate <= toDate;
+            });
+        }
+        return baseCounts;
+    }, [allCountsSnapshot, previousCountsDateRange]);
 
 
     React.useEffect(() => {
@@ -210,9 +226,36 @@ export function InventoryCountForm() {
             setIsSubmitting(false);
         }
     };
+    
+    const handleDownloadExcel = () => {
+        if (!previousCounts || previousCounts.length === 0) return;
+
+        const reportRows = previousCounts.flatMap(count => 
+            count.items.map(item => ({
+                "Report Date": format(new Date(count.date), "yyyy-MM-dd HH:mm"),
+                "Material Name": item.materialName,
+                "System Stock": item.systemStock,
+                "Counted Stock": item.countedStock,
+                "Wastage": item.wastage,
+                "Unit": item.unit
+            }))
+        );
+
+        const worksheet = XLSX.utils.json_to_sheet(reportRows);
+        worksheet['!cols'] = [
+            { wch: 20 }, { wch: 25 }, { wch: 15 }, { wch: 15 }, { wch: 15 }, { wch: 10 }
+        ];
+
+        const workbook = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(workbook, worksheet, "Wastage Reports");
+
+        const dateFromString = previousCountsDateRange?.from ? format(previousCountsDateRange.from, 'yyyy-MM-dd') : 'start';
+        const dateToString = previousCountsDateRange?.to ? format(previousCountsDateRange.to, 'yyyy-MM-dd') : 'end';
+        XLSX.writeFile(workbook, `WastageReport_${dateFromString}_to_${dateToString}.xlsx`);
+    };
 
 
-    if (materialsLoading || countsLoading) {
+    if (materialsLoading || allCountsLoading) {
         return <Skeleton className="h-[400px] w-full" />
     }
   
@@ -230,7 +273,7 @@ export function InventoryCountForm() {
                     </AlertDescription>
                 </Alert>
                 <div className="space-y-2">
-                    <Label>Count Date & Time</Label>
+                    <Label>Count Date &amp; Time</Label>
                     <div className="flex items-center gap-2">
                         <Popover>
                             <PopoverTrigger asChild>
@@ -299,7 +342,50 @@ export function InventoryCountForm() {
             <Separator />
             
             <div className="space-y-4 p-4 border rounded-lg">
-                <h3 className="text-lg font-medium">Previous Counts & Wastage Reports</h3>
+                 <div className="flex items-center justify-between flex-wrap gap-4">
+                    <h3 className="text-lg font-medium">Previous Counts &amp; Wastage Reports</h3>
+                    <div className="flex items-center gap-2 flex-wrap">
+                       <Popover>
+                            <PopoverTrigger asChild>
+                                <Button
+                                id="date-wastage"
+                                variant={"outline"}
+                                className="w-[260px] justify-start text-left font-normal"
+                                >
+                                <CalendarIcon className="mr-2 h-4 w-4" />
+                                {previousCountsDateRange?.from ? (
+                                    previousCountsDateRange.to ? (
+                                    <>
+                                        {format(previousCountsDateRange.from, "LLL dd, y")} -{" "}
+                                        {format(previousCountsDateRange.to, "LLL dd, y")}
+                                    </>
+                                    ) : (
+                                    format(previousCountsDateRange.from, "LLL dd, y")
+                                    )
+                                ) : (
+                                    <span>Filter by date range</span>
+                                )}
+                                </Button>
+                            </PopoverTrigger>
+                            <PopoverContent className="w-auto p-0" align="start">
+                                <Calendar
+                                initialFocus
+                                mode="range"
+                                defaultMonth={previousCountsDateRange?.from}
+                                selected={previousCountsDateRange}
+                                onSelect={setPreviousCountsDateRange}
+                                numberOfMonths={2}
+                                />
+                            </PopoverContent>
+                        </Popover>
+                         <Button variant="outline" onClick={handleDownloadExcel} disabled={previousCounts.length === 0}>
+                            <Download className="mr-2 h-4 w-4" />
+                            Export Excel
+                        </Button>
+                        {previousCountsDateRange && <Button variant="ghost" onClick={() => setPreviousCountsDateRange(undefined)}>Clear</Button>}
+                    </div>
+                </div>
+
                 {previousCounts.length > 0 ? (
                 <div className="rounded-md border">
                    <Table>
@@ -331,7 +417,7 @@ export function InventoryCountForm() {
                     </Table>
                 </div>
                 ) : (
-                    <p className="text-sm text-muted-foreground">No previous inventory counts found.</p>
+                    <p className="text-sm text-muted-foreground">No previous inventory counts found for the selected date range.</p>
                 )}
             </div>
 
@@ -343,7 +429,7 @@ export function InventoryCountForm() {
             }}>
                 <DialogContent className="max-w-2xl">
                     <DialogHeader>
-                        <DialogTitle>{isConfirmOpen ? "Confirm Inventory & Adjust Stock" : `Wastage Report - ${reportData ? format(new Date(reportData.date), "PPp"): ''}`}</DialogTitle>
+                        <DialogTitle>{isConfirmOpen ? "Confirm Inventory &amp; Adjust Stock" : `Wastage Report - ${reportData ? format(new Date(reportData.date), "PPp"): ''}`}</DialogTitle>
                         <DialogDescription>
                             {isConfirmOpen 
                                 ? (getFullCountDate() && isToday(getFullCountDate()!) ? "Review the calculated wastage. Saving will update your stock levels and create adjustment logs." : "This is a historical count. Saving will create a wastage report but will NOT adjust current stock levels.")
@@ -382,7 +468,7 @@ export function InventoryCountForm() {
                          <DialogFooter>
                             <Button variant="ghost" onClick={() => setIsConfirmOpen(false)}>Cancel</Button>
                             <Button onClick={handleConfirmSubmit} disabled={isSubmitting}>
-                                {isSubmitting ? "Saving..." : `Confirm & Save ${isToday(getFullCountDate()) ? '(Adjust Stock)' : '(No Adjustment)'}`}
+                                {isSubmitting ? "Saving..." : `Confirm &amp; Save ${isToday(getFullCountDate()) ? '(Adjust Stock)' : '(No Adjustment)'}`}
                             </Button>
                         </DialogFooter>
                     )}
@@ -391,9 +477,3 @@ export function InventoryCountForm() {
         </div>
     );
 }
-
-    
-
-    
-
-    
