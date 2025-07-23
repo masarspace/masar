@@ -148,33 +148,62 @@ export function OrdersTable() {
       await runTransaction(db, async (transaction) => {
         const orderRef = doc(db, 'orders', order.id);
 
-        // Only return stock if the order was completed
-        if (order.status === 'Completed') {
-            for (const item of order.items) {
-                const drink = allDrinks.find(d => d.id === item.drinkId);
-                if (drink) {
-                    for (const recipeItem of drink.recipe) {
-                        const materialRef = doc(db, 'materials', recipeItem.materialId).withConverter(materialConverter);
-                        const materialDoc = await transaction.get(materialRef);
-                        if (materialDoc.exists()) {
-                            const materialData = materialDoc.data();
-                            const conversionFactor = getConversionFactor(recipeItem.unit, materialData.unit);
-                            const stockToAdd = (recipeItem.quantity * item.quantity) * conversionFactor;
-                            transaction.update(materialRef, { stock: materialDoc.data().stock + stockToAdd });
-                            // Log audit
-                             const auditLogRef = doc(collection(db, 'auditLog'));
-                             transaction.set(auditLogRef.withConverter(auditLogConverter), {
-                                materialId: recipeItem.materialId,
-                                materialName: materialDoc.data().name,
-                                change: stockToAdd,
-                                type: 'adjustment',
-                                relatedId: order.id,
-                                createdAt: new Date().toISOString()
-                            });
-                        }
-                    }
-                }
+        if (order.status !== 'Completed') {
+          // If order was not completed, just delete it. No stock changes needed.
+          transaction.delete(orderRef);
+          return;
+        }
+
+        // --- READ PHASE ---
+        // Collect all material refs and read them
+        const materialRefsToRead = new Map<string, ReturnType<typeof doc>>();
+        for (const item of order.items) {
+          const drink = allDrinks.find(d => d.id === item.drinkId);
+          if (drink) {
+            for (const recipeItem of drink.recipe) {
+              if (!materialRefsToRead.has(recipeItem.materialId)) {
+                materialRefsToRead.set(recipeItem.materialId, doc(db, 'materials', recipeItem.materialId).withConverter(materialConverter));
+              }
             }
+          }
+        }
+        
+        const materialDocs = await Promise.all(
+          Array.from(materialRefsToRead.values()).map(ref => transaction.get(ref))
+        );
+
+        const materialDocsMap = new Map(materialDocs.map(doc => [doc.id, doc]));
+
+        // --- WRITE PHASE ---
+        // Now perform all writes
+        for (const item of order.items) {
+          const drink = allDrinks.find(d => d.id === item.drinkId);
+          if (drink) {
+            for (const recipeItem of drink.recipe) {
+              const materialDoc = materialDocsMap.get(recipeItem.materialId);
+              
+              if (materialDoc && materialDoc.exists()) {
+                const materialData = materialDoc.data();
+                const conversionFactor = getConversionFactor(recipeItem.unit, materialData.unit);
+                const stockToAdd = (recipeItem.quantity * item.quantity) * conversionFactor;
+
+                // Update stock
+                transaction.update(materialDoc.ref, { stock: materialData.stock + stockToAdd });
+                
+                // Log audit
+                const auditLogRef = doc(collection(db, 'auditLog'));
+                transaction.set(auditLogRef.withConverter(auditLogConverter), {
+                  id: auditLogRef.id,
+                  materialId: recipeItem.materialId,
+                  materialName: materialData.name,
+                  change: stockToAdd,
+                  type: 'adjustment',
+                  relatedId: order.id,
+                  createdAt: new Date().toISOString()
+                });
+              }
+            }
+          }
         }
         
         transaction.delete(orderRef);
@@ -234,6 +263,7 @@ export function OrdersTable() {
                 // Log audit
                 const auditLogRef = doc(collection(db, 'auditLog'));
                 transaction.set(auditLogRef.withConverter(auditLogConverter), {
+                    id: auditLogRef.id,
                     materialId: materialDoc.id,
                     materialName: materialDoc.data().name,
                     change: changeData.change,
@@ -323,6 +353,7 @@ export function OrdersTable() {
                          // Log audit
                         const auditLogRef = doc(collection(db, 'auditLog'));
                         transaction.set(auditLogRef.withConverter(auditLogConverter), {
+                            id: auditLogRef.id,
                             materialId: materialDoc.id,
                             materialName: materialDoc.data().name,
                             change: changeData.change,
@@ -597,5 +628,7 @@ export function OrdersTable() {
     </>
   );
 }
+
+    
 
     
