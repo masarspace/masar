@@ -39,6 +39,7 @@ export function ExpiringContracts() {
             .map(doc => doc.data())
             .filter(contract => {
                 const endDate = new Date(contract.endDate);
+                // Check if the contract's end date is between today and 30 days from now.
                 return endDate >= today && endDate <= thirtyDaysFromNow;
             });
 
