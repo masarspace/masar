@@ -128,7 +128,7 @@ export function InventoryCountForm() {
                             change: -item.wastage, // Log the change needed to correct stock (e.g., wastage of 5 means change of -5)
                             type: 'adjustment',
                             relatedId: countRef.id,
-                            createdAt: new Date().toISOString()
+                            createdAt: reportData.date // Use the count date for the audit log
                         });
                     }
                 }
@@ -161,7 +161,7 @@ export function InventoryCountForm() {
                     <AlertCircle className="h-4 w-4" />
                     <AlertTitle>How this works</AlertTitle>
                     <AlertDescription>
-                        Enter the physical quantity for each material you've counted. When you save, the system will calculate the wastage (difference between system stock and your count) and automatically adjust the stock levels to match your physical count. An "adjustment" entry will be created in the Audit Log for each change.
+                        Enter the physical quantity for each material you've counted. When you save, the system will calculate the wastage (difference between system stock at the time of the count and your physical count) and automatically adjust the current stock levels to match your physical count. An "adjustment" entry will be created in the Audit Log for each change.
                     </AlertDescription>
                 </Alert>
                 <div className="space-y-2">
@@ -191,7 +191,7 @@ export function InventoryCountForm() {
                         <TableHeader>
                         <TableRow>
                             <TableHead>Material</TableHead>
-                            <TableHead>System Stock</TableHead>
+                            <TableHead>System Stock (at time of count)</TableHead>
                             <TableHead>Physical Count</TableHead>
                         </TableRow>
                         </TableHeader>
