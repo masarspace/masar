@@ -23,6 +23,15 @@ import {
   SheetFooter,
 } from '@/components/ui/sheet';
 import {
+    Dialog,
+    DialogContent,
+    DialogHeader,
+    DialogTitle,
+    DialogFooter,
+    DialogTrigger,
+    DialogClose
+} from '@/components/ui/dialog';
+import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -44,7 +53,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { format, differenceInMinutes, setHours, setMinutes } from 'date-fns';
 import { useToast } from "@/hooks/use-toast";
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
-import { Popover, PopoverContent, PopoverTrigger, PopoverPortal } from '@/components/ui/popover';
 import { Calendar } from '@/components/ui/calendar';
 
 export function ReservationsTable() {
@@ -53,6 +61,7 @@ export function ReservationsTable() {
   const [roomsSnapshot, roomsLoading] = useCollection(collection(db, 'rooms').withConverter(roomConverter));
 
   const [isSheetOpen, setIsSheetOpen] = React.useState(false);
+  const [isDatePickerOpen, setIsDatePickerOpen] = React.useState(false);
   const [searchTerm, setSearchTerm] = React.useState('');
   const { toast } = useToast();
 
@@ -291,6 +300,33 @@ export function ReservationsTable() {
           </TableBody>
         </Table>
       </div>
+
+       <Dialog open={isDatePickerOpen} onOpenChange={setIsDatePickerOpen}>
+            <DialogContent>
+                <DialogHeader>
+                    <DialogTitle>Select Date and Time</DialogTitle>
+                </DialogHeader>
+                 <div className="flex flex-col items-center gap-4">
+                    <Calendar
+                        mode="single"
+                        selected={startDate}
+                        onSelect={setStartDate}
+                        initialFocus
+                    />
+                    <div className="flex items-center gap-2">
+                        <Input type="number" value={startHour} onChange={e => setStartHour(e.target.value)} min="0" max="23" className="w-20" placeholder="HH"/>
+                        <span>:</span>
+                        <Input type="number" value={startMinute} onChange={e => setStartMinute(e.target.value)} min="0" max="59" className="w-20" placeholder="MM" />
+                    </div>
+                </div>
+                <DialogFooter>
+                    <DialogClose asChild>
+                        <Button>Done</Button>
+                    </DialogClose>
+                </DialogFooter>
+            </DialogContent>
+       </Dialog>
+
       <Sheet open={isSheetOpen} onOpenChange={setIsSheetOpen}>
         <SheetContent>
             <form onSubmit={handleFormSubmit}>
@@ -350,32 +386,15 @@ export function ReservationsTable() {
                 </div>
                 <div className="space-y-2">
                     <Label>Reservation Start Date &amp; Time</Label>
-                    <div className="flex items-center gap-2 flex-wrap">
-                        <Popover>
-                            <PopoverTrigger asChild>
-                                <Button
-                                variant={"outline"}
-                                className="w-full sm:w-[260px] justify-start text-left font-normal"
-                                >
-                                <CalendarIcon className="mr-2 h-4 w-4" />
-                                {getFullStartDate() ? format(getFullStartDate()!, "PPP p") : <span>Pick a date</span>}
-                                </Button>
-                            </PopoverTrigger>
-                            <PopoverContent className="w-auto p-0" align="start">
-                                <Calendar
-                                mode="single"
-                                selected={startDate}
-                                onSelect={setStartDate}
-                                initialFocus
-                                />
-                            </PopoverContent>
-                        </Popover>
-                        <div className="flex items-center gap-1">
-                            <Input type="number" value={startHour} onChange={e => setStartHour(e.target.value)} min="0" max="23" className="w-20" placeholder="HH"/>
-                            <span>:</span>
-                            <Input type="number" value={startMinute} onChange={e => setStartMinute(e.target.value)} min="0" max="59" className="w-20" placeholder="MM" />
-                        </div>
-                    </div>
+                    <Button
+                        type="button"
+                        variant={"outline"}
+                        className="w-full justify-start text-left font-normal"
+                        onClick={() => setIsDatePickerOpen(true)}
+                    >
+                        <CalendarIcon className="mr-2 h-4 w-4" />
+                        {getFullStartDate() ? format(getFullStartDate()!, "PPP p") : <span>Pick a date</span>}
+                    </Button>
                 </div>
               </div>
               <SheetFooter>
