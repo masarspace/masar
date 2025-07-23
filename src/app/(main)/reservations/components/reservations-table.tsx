@@ -355,7 +355,7 @@ export function ReservationsTable() {
                             <PopoverTrigger asChild>
                                 <Button
                                 variant={"outline"}
-                                className="w-full sm:w-auto flex-1 justify-start text-left font-normal"
+                                className="w-full sm:w-[240px] justify-start text-left font-normal"
                                 >
                                 <CalendarIcon className="mr-2 h-4 w-4" />
                                 {getFullStartDate() ? format(getFullStartDate()!, "PPP") : <span>Pick a date</span>}
