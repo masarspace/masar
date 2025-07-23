@@ -3,10 +3,10 @@
 
 import * as React from 'react';
 import { useCollection } from 'react-firebase-hooks/firestore';
-import { collection, addDoc, doc, runTransaction, query, orderBy, getDocs, where, Timestamp } from 'firebase/firestore';
+import { collection, addDoc, doc, runTransaction, query, getDocs, where } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { materialConverter, inventoryCountConverter, auditLogConverter } from '@/lib/converters';
-import type { Material, InventoryCount, InventoryCountItem, AuditLogEntry } from '@/lib/types';
+import type { Material, InventoryCount, InventoryCountItem } from '@/lib/types';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -15,7 +15,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Calendar } from '@/components/ui/calendar';
 import { Calendar as CalendarIcon, Save, AlertCircle, FileText, RefreshCw } from 'lucide-react';
-import { format, startOfDay, endOfDay, isToday } from 'date-fns';
+import { format, startOfDay, endOfDay, isToday, setHours, setMinutes } from 'date-fns';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import {
   Table,
@@ -53,6 +53,9 @@ export function InventoryCountForm() {
     const [counts, setCounts] = React.useState<CountInput[]>([]);
     const [isConfirmOpen, setIsConfirmOpen] = React.useState(false);
     const [reportData, setReportData] = React.useState<InventoryCount | null>(null);
+    const [hour, setHour] = React.useState(new Date().getHours().toString().padStart(2,'0'));
+    const [minute, setMinute] = React.useState(new Date().getMinutes().toString().padStart(2,'0'));
+
 
     React.useEffect(() => {
         if (allMaterials.length > 0) {
@@ -63,10 +66,21 @@ export function InventoryCountForm() {
     const handleCountChange = (materialId: string, value: string) => {
         setCounts(currentCounts => currentCounts.map(c => c.materialId === materialId ? {...c, countedStock: value} : c));
     }
+    
+    const getFullCountDate = React.useCallback(() => {
+        if (!countDate) return null;
+        const h = parseInt(hour, 10);
+        const m = parseInt(minute, 10);
+        if (isNaN(h) || h < 0 || h > 23 || isNaN(m) || m < 0 || m > 59) return null;
+
+        return setMinutes(setHours(countDate, h), m);
+    }, [countDate, hour, minute]);
+
 
     const handleSubmitClick = async () => {
-        if (!countDate) {
-            toast({ variant: 'destructive', title: 'Please select a date for the count.' });
+        const fullCountDate = getFullCountDate();
+        if (!fullCountDate) {
+            toast({ variant: 'destructive', title: 'Please select a valid date and time for the count.' });
             return;
         }
         
@@ -79,7 +93,7 @@ export function InventoryCountForm() {
         try {
             const newReportItems: InventoryCountItem[] = [];
             
-            const countTimestamp = endOfDay(countDate);
+            const countTimestamp = fullCountDate;
 
             for (const item of itemsToSave) {
                 const material = allMaterials.find(m => m.id === item.materialId)!;
@@ -131,26 +145,26 @@ export function InventoryCountForm() {
     };
 
     const handleConfirmSubmit = async () => {
-        if (!reportData || !countDate) return;
+        const fullCountDate = getFullCountDate();
+        if (!reportData || !fullCountDate) return;
         setIsSubmitting(true);
         
-        const shouldAdjustStock = isToday(countDate);
+        const shouldAdjustStock = isToday(fullCountDate);
 
         try {
             await runTransaction(db, async (transaction) => {
                 const countRef = doc(collection(db, 'inventoryCounts'));
                 
                 // --- READ PHASE ---
-                // Only read materials if we need to adjust stock
                 const itemsWithChanges = reportData.items.filter(item => (item.countedStock - item.systemStock) !== 0);
                 const materialRefs = shouldAdjustStock ? itemsWithChanges.map(item => doc(db, 'materials', item.materialId).withConverter(materialConverter)) : [];
-                const materialDocs = await Promise.all(materialRefs.map(ref => transaction.get(ref)));
-
+                
+                const materialDocs = shouldAdjustStock ? await Promise.all(materialRefs.map(ref => transaction.get(ref))) : [];
                 const materialMap = new Map(materialDocs.map(doc => [doc.id, doc]));
 
                 // --- WRITE PHASE ---
                 // 1. Set the inventory count report
-                transaction.set(countRef.withConverter(inventoryCountConverter), { ...reportData, id: countRef.id });
+                transaction.set(countRef.withConverter(inventoryCountConverter), { ...reportData, id: countRef.id, date: fullCountDate.toISOString() });
                 
                 // 2. Update materials and create audit logs ONLY IF date is today
                 if (shouldAdjustStock) {
@@ -212,31 +226,36 @@ export function InventoryCountForm() {
                     <AlertCircle className="h-4 w-4" />
                     <AlertTitle>How this works</AlertTitle>
                     <AlertDescription>
-                       Select a date and enter the physical quantity for each material. If you select today's date, the system will adjust the *current* stock levels to match your physical count. If you select a past date, the count will be saved for historical wastage analysis but will **not** alter current stock levels.
+                       Select a date and time, then enter the physical quantity for each material. If you select today's date, the system will adjust the *current* stock levels to match your physical count. If you select a past date, the count will be saved for historical wastage analysis but will **not** alter current stock levels.
                     </AlertDescription>
                 </Alert>
                 <div className="space-y-2">
-                    <Label>Count Date</Label>
-                    <Popover>
-                        <PopoverTrigger asChild>
-                            <Button
-                            variant={"outline"}
-                            className="w-[260px] justify-start text-left font-normal"
-                            >
-                            <CalendarIcon className="mr-2 h-4 w-4" />
-                            {countDate ? format(countDate, "PPP") : <span>Pick a date</span>}
-                            </Button>
-                        </PopoverTrigger>
-                        <PopoverContent className="w-auto p-0" align="start">
-                            <Calendar
-                            mode="single"
-                            selected={countDate}
-                            onSelect={setCountDate}
-                            initialFocus
-                            disabled={(date) => date > new Date()}
-                            />
-                        </PopoverContent>
-                    </Popover>
+                    <Label>Count Date & Time</Label>
+                    <div className="flex items-center gap-2">
+                        <Popover>
+                            <PopoverTrigger asChild>
+                                <Button
+                                variant={"outline"}
+                                className="w-[260px] justify-start text-left font-normal"
+                                >
+                                <CalendarIcon className="mr-2 h-4 w-4" />
+                                {getFullCountDate() ? format(getFullCountDate()!, "PPP p") : <span>Pick a date</span>}
+                                </Button>
+                            </PopoverTrigger>
+                            <PopoverContent className="w-auto p-0" align="start">
+                                <Calendar
+                                mode="single"
+                                selected={countDate}
+                                onSelect={setCountDate}
+                                initialFocus
+                                disabled={(date) => date > new Date()}
+                                />
+                            </PopoverContent>
+                        </Popover>
+                        <Input type="number" value={hour} onChange={e => setHour(e.target.value)} min="0" max="23" className="w-20" placeholder="HH"/>
+                        <span>:</span>
+                        <Input type="number" value={minute} onChange={e => setMinute(e.target.value)} min="0" max="59" className="w-20" placeholder="MM" />
+                    </div>
                 </div>
                 <div className="rounded-md border">
                     <Table>
@@ -327,7 +346,7 @@ export function InventoryCountForm() {
                         <DialogTitle>{isConfirmOpen ? "Confirm Inventory & Adjust Stock" : `Wastage Report - ${reportData ? format(new Date(reportData.date), "PPp"): ''}`}</DialogTitle>
                         <DialogDescription>
                             {isConfirmOpen 
-                                ? "Review the calculated wastage below. Saving will update your stock levels to match the physical count and create adjustment logs."
+                                ? (isToday(getFullCountDate()!) ? "Review the calculated wastage. Saving will update your stock levels and create adjustment logs." : "This is a historical count. Saving will create a wastage report but will NOT adjust current stock levels.")
                                 : "A detailed report of the inventory count performed."
                             }
                         </DialogDescription>
@@ -359,11 +378,11 @@ export function InventoryCountForm() {
                             </Table>
                         </div>
                     )}
-                    {isConfirmOpen && (
+                    {isConfirmOpen && getFullCountDate() && (
                          <DialogFooter>
                             <Button variant="ghost" onClick={() => setIsConfirmOpen(false)}>Cancel</Button>
                             <Button onClick={handleConfirmSubmit} disabled={isSubmitting}>
-                                {isSubmitting ? "Saving..." : `Confirm & Save ${isToday(countDate!) ? '(Adjust Stock)' : '(No Adjustment)'}`}
+                                {isSubmitting ? "Saving..." : `Confirm & Save ${isToday(getFullCountDate()) ? '(Adjust Stock)' : '(No Adjustment)'}`}
                             </Button>
                         </DialogFooter>
                     )}
@@ -372,5 +391,7 @@ export function InventoryCountForm() {
         </div>
     );
 }
+
+    
 
     
