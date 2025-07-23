@@ -23,6 +23,10 @@ export default function DashboardPage() {
       
       <DashboardStats />
 
+      <div className="grid gap-4">
+        <ExpiringContracts />
+      </div>
+
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-7">
         <Card className="col-span-full lg:col-span-4">
           <CardHeader>
@@ -46,10 +50,6 @@ export default function DashboardPage() {
             <RecentOrders />
           </CardContent>
         </Card>
-      </div>
-      
-      <div className="grid gap-4">
-        <ExpiringContracts />
       </div>
 
     </div>
