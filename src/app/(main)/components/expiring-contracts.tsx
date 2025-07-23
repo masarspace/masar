@@ -6,7 +6,7 @@ import { useCollection } from 'react-firebase-hooks/firestore';
 import { collection, query, where, orderBy } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { clientContractConverter } from '@/lib/converters';
-import { differenceInDays, format, startOfToday, addDays } from 'date-fns';
+import { differenceInDays, format, startOfToday, addDays, isWithinInterval } from 'date-fns';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import {
   Table,
@@ -24,25 +24,35 @@ export function ExpiringContracts() {
     const today = startOfToday();
     const thirtyDaysFromNow = addDays(today, 30);
 
+    // Fetch all active contracts, and we will filter by date on the client
     const [snapshot, loading] = useCollection(
         query(
             collection(db, 'clientContracts'),
             where('status', '==', 'Active'),
-            where('endDate', '>=', today.toISOString()),
-            where('endDate', '<=', thirtyDaysFromNow.toISOString()),
             orderBy('endDate', 'asc')
         ).withConverter(clientContractConverter)
     );
 
     const expiringContracts = React.useMemo(() => {
-        return snapshot?.docs.map(doc => doc.data()) ?? [];
-    }, [snapshot]);
+        if (!snapshot) return [];
+        
+        const allActiveContracts = snapshot.docs.map(doc => doc.data());
+        
+        // Filter on the client to find contracts expiring in the next 30 days
+        return allActiveContracts.filter(contract => {
+            const endDate = new Date(contract.endDate);
+            return isWithinInterval(endDate, { start: today, end: thirtyDaysFromNow });
+        });
+
+    }, [snapshot, today, thirtyDaysFromNow]);
 
     if (loading) {
         return (
             <Card>
                 <CardHeader>
-                    <CardTitle>Contracts Ending Soon</CardTitle>
+                    <CardTitle className="flex items-center gap-2">
+                        <FileClock className="w-6 h-6" /> Contracts Ending Soon
+                    </CardTitle>
                     <CardDescription>
                         Contracts expiring in the next 30 days.
                     </CardDescription>
