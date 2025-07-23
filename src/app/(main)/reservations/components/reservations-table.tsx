@@ -3,7 +3,7 @@
 
 import * as React from 'react';
 import { useCollection } from 'react-firebase-hooks/firestore';
-import { collection, addDoc, doc, updateDoc, query, orderBy } from 'firebase/firestore';
+import { collection, addDoc, doc, updateDoc, query, orderBy, deleteDoc } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { reservationConverter, clientConverter, roomConverter } from '@/lib/converters';
 import {
@@ -45,10 +45,11 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
+  DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { PlusCircle, Search, Clock, LogOut, Calendar as CalendarIcon, MoreHorizontal, Edit } from 'lucide-react';
+import { PlusCircle, Search, Clock, LogOut, Calendar as CalendarIcon, MoreHorizontal, Edit, Trash2 } from 'lucide-react';
 import type { Reservation, Client, Room } from '@/lib/types';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -90,6 +91,10 @@ export function ReservationsTable() {
   // State for end session alert
   const [endSessionAlertOpen, setEndSessionAlertOpen] = React.useState(false);
   const [reservationToEnd, setReservationToEnd] = React.useState<Reservation | null>(null);
+
+  // State for delete alert
+  const [isDeleteDialogOpen, setIsDeleteDialogOpen] = React.useState(false);
+  const [reservationToDelete, setReservationToDelete] = React.useState<Reservation | null>(null);
 
 
   const allClients = React.useMemo(() => clientsSnapshot?.docs.map(doc => doc.data()) ?? [], [clientsSnapshot]);
@@ -181,8 +186,13 @@ export function ReservationsTable() {
     const fullEndDate = getFullEndDate();
     if(fullStartDate && fullEndDate && fullEndDate < fullStartDate) {
         setEndDate(undefined);
+        toast({
+            variant: "destructive",
+            title: "Invalid End Date",
+            description: "End date cannot be earlier than the start date. It has been reset.",
+        });
     }
-  }, [startDate, startHour, startMinute, getFullStartDate, getFullEndDate]);
+  }, [startDate, startHour, startMinute, endDate, endHour, endMinute, getFullStartDate, getFullEndDate, toast]);
 
 
   const handleFormSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -197,6 +207,11 @@ export function ReservationsTable() {
     // --- EDITING LOGIC ---
     if (selectedReservation) {
         const fullEndDate = getFullEndDate();
+
+        if (fullEndDate && fullEndDate < fullStartDate) {
+            toast({ variant: 'destructive', title: 'End date cannot be before start date.' });
+            return;
+        }
 
         const updateData: any = {
             startAt: fullStartDate.toISOString(),
@@ -336,6 +351,24 @@ export function ReservationsTable() {
       }
   }
 
+    const handleDeleteClick = (reservation: Reservation) => {
+        setReservationToDelete(reservation);
+        setIsDeleteDialogOpen(true);
+    };
+
+    const confirmDelete = async () => {
+        if (!reservationToDelete) return;
+        try {
+            await deleteDoc(doc(db, 'reservations', reservationToDelete.id));
+            toast({ title: "Reservation deleted successfully." });
+        } catch (error: any) {
+            toast({ variant: "destructive", title: "Error deleting reservation", description: error.message });
+        } finally {
+            setIsDeleteDialogOpen(false);
+            setReservationToDelete(null);
+        }
+    };
+
   const isLoading = loading || clientsLoading || roomsLoading;
 
   if (isLoading) {
@@ -441,6 +474,10 @@ export function ReservationsTable() {
                             <LogOut className="mr-2 h-4 w-4" /> End Session
                         </DropdownMenuItem>
                        )}
+                       <DropdownMenuSeparator />
+                       <DropdownMenuItem onClick={() => handleDeleteClick(res)} className="text-destructive">
+                           <Trash2 className="mr-2 h-4 w-4" /> Delete
+                       </DropdownMenuItem>
                     </DropdownMenuContent>
                   </DropdownMenu>
                 </TableCell>
@@ -527,6 +564,22 @@ export function ReservationsTable() {
                 </AlertDialogFooter>
             </AlertDialogContent>
        </AlertDialog>
+
+        <AlertDialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>
+            <AlertDialogContent>
+                <AlertDialogHeader>
+                <AlertDialogTitle>Are you absolutely sure?</AlertDialogTitle>
+                <AlertDialogDescription>
+                    This action cannot be undone. This will permanently delete the
+                    reservation.
+                </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                <AlertDialogAction onClick={confirmDelete}>Delete</AlertDialogAction>
+                </AlertDialogFooter>
+            </AlertDialogContent>
+        </AlertDialog>
 
 
       <Sheet open={isSheetOpen} onOpenChange={setIsSheetOpen}>
