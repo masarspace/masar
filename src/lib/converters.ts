@@ -6,7 +6,7 @@ import {
   FieldValue,
   deleteField,
 } from 'firebase/firestore';
-import type { Material, Drink, Order, PurchaseCategory, PurchaseOrder, PurchaseOrderItem, AuditLogEntry, DrinkRecipeItem, InventoryCount, InventoryCountItem, Client, Location, Room, Contract } from './types';
+import type { Material, Drink, Order, PurchaseCategory, PurchaseOrder, PurchaseOrderItem, AuditLogEntry, DrinkRecipeItem, InventoryCount, InventoryCountItem, Client, Location, Room, Contract, Reservation } from './types';
 
 export const materialConverter: FirestoreDataConverter<Material> = {
   toFirestore(material: Material): DocumentData {
@@ -251,4 +251,30 @@ export const contractConverter: FirestoreDataConverter<Contract> = {
       period: data.period,
     };
   },
+};
+
+export const reservationConverter: FirestoreDataConverter<Reservation> = {
+    toFirestore(reservation: Reservation | Omit<Reservation, 'id'>): DocumentData {
+        if ('id' in reservation) {
+            const { id, ...data } = reservation;
+            return data;
+        }
+        return reservation;
+    },
+    fromFirestore(snapshot: QueryDocumentSnapshot, options: SnapshotOptions): Reservation {
+        const data = snapshot.data(options);
+        return {
+            id: snapshot.id,
+            clientId: data.clientId,
+            clientName: data.clientName,
+            roomId: data.roomId,
+            roomName: data.roomName,
+            roomPrice: data.roomPrice,
+            roomDiscount: data.roomDiscount,
+            startAt: data.startAt,
+            endAt: data.endAt,
+            status: data.status,
+            totalCost: data.totalCost,
+        };
+    },
 };

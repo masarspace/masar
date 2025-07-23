@@ -110,3 +110,17 @@ export type Contract = {
     type: 'short' | 'long';
     period: 3 | 6 | 12;
 };
+
+export type Reservation = {
+    id: string;
+    clientId: string;
+    clientName: string;
+    roomId: string;
+    roomName: string;
+    roomPrice: number;
+    roomDiscount: number;
+    startAt: string; // ISO string
+    endAt: string | null; // ISO string
+    status: 'Active' | 'Completed';
+    totalCost: number | null;
+};

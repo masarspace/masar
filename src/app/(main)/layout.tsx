@@ -32,6 +32,7 @@ import {
   MapPin,
   BedDouble,
   FileSignature,
+  CalendarClock
 } from "lucide-react";
 import { usePathname } from "next/navigation";
 
@@ -87,6 +88,19 @@ export default function MainLayout({
                 <SidebarGroupLabel>Management</SidebarGroupLabel>
                 <SidebarGroupContent>
                   <SidebarMenu>
+                    <SidebarMenuItem>
+                      <SidebarMenuButton
+                        asChild
+                        href="/reservations"
+                        isActive={pathname.startsWith("/reservations")}
+                        tooltip="Reservations"
+                      >
+                        <Link href="/reservations">
+                          <CalendarClock />
+                          <span>Reservations</span>
+                        </Link>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
                     <SidebarMenuItem>
                       <SidebarMenuButton
                         asChild
