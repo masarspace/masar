@@ -30,7 +30,7 @@ export function ExpiringContracts() {
     );
 
     const expiringContracts = React.useMemo(() => {
-        if (loading || !snapshot) return [];
+        if (!snapshot) return [];
         
         const today = startOfToday();
         const thirtyDaysFromNow = addDays(today, 30);
@@ -42,7 +42,7 @@ export function ExpiringContracts() {
                 return endDate >= today && endDate <= thirtyDaysFromNow;
             });
 
-    }, [snapshot, loading]);
+    }, [snapshot]);
 
 
     return (
