@@ -3,7 +3,7 @@
 
 import * as React from 'react';
 import { useCollection } from 'react-firebase-hooks/firestore';
-import { collection, query, where, orderBy } from 'firebase/firestore';
+import { collection, query, where } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 import { clientContractConverter } from '@/lib/converters';
 import { differenceInDays, format, startOfToday, addDays, isWithinInterval } from 'date-fns';
@@ -26,7 +26,6 @@ export function ExpiringContracts() {
         query(
             collection(db, 'clientContracts'),
             where('status', '==', 'Active'),
-            orderBy('endDate', 'asc')
         ).withConverter(clientContractConverter)
     );
 
@@ -40,8 +39,10 @@ export function ExpiringContracts() {
             .map(doc => doc.data())
             .filter(contract => {
                 const endDate = new Date(contract.endDate);
+                // Check if the contract's end date is between today and 30 days from now.
                 return isWithinInterval(endDate, { start: today, end: thirtyDaysFromNow });
-            });
+            })
+            .sort((a, b) => new Date(a.endDate).getTime() - new Date(b.endDate).getTime());
 
     }, [snapshot]);
 
