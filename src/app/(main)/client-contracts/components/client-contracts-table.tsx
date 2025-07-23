@@ -38,6 +38,14 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
+import {
+    Dialog,
+    DialogContent,
+    DialogHeader,
+    DialogTitle,
+    DialogFooter,
+    DialogClose
+} from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { MoreHorizontal, PlusCircle, Edit, Trash2, Search, Calendar as CalendarIcon } from 'lucide-react';
 import type { ClientContract, Client, Contract } from '@/lib/types';
@@ -46,7 +54,6 @@ import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useToast } from "@/hooks/use-toast";
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Calendar } from '@/components/ui/calendar';
 import { format, addMonths, isAfter } from 'date-fns';
 import { Badge } from '@/components/ui/badge';
@@ -67,6 +74,7 @@ export function ClientContractsTable() {
   const [selectedContractId, setSelectedContractId] = React.useState<string | undefined>();
   const [startDate, setStartDate] = React.useState<Date | undefined>();
   const [endDate, setEndDate] = React.useState<Date | undefined>();
+  const [isDatePickerOpen, setIsDatePickerOpen] = React.useState(false);
 
   const allClients = React.useMemo(() => clientsSnapshot?.docs.map(doc => doc.data()) ?? [], [clientsSnapshot]);
   const allContracts = React.useMemo(() => contractsSnapshot?.docs.map(doc => doc.data()) ?? [], [contractsSnapshot]);
@@ -306,25 +314,15 @@ export function ClientContractsTable() {
                 </div>
                 <div className="grid sm:grid-cols-4 items-center gap-2 sm:gap-4">
                   <Label htmlFor="startDate" className="sm:text-right">Start Date</Label>
-                   <Popover>
-                        <PopoverTrigger asChild>
-                            <Button
-                            variant={"outline"}
-                            className="sm:col-span-3 justify-start text-left font-normal"
-                            >
-                            <CalendarIcon className="mr-2 h-4 w-4" />
-                            {startDate ? format(startDate, "PPP") : <span>Pick a date</span>}
-                            </Button>
-                        </PopoverTrigger>
-                        <PopoverContent className="w-auto p-0" align="start">
-                            <Calendar
-                            mode="single"
-                            selected={startDate}
-                            onSelect={setStartDate}
-                            initialFocus
-                            />
-                        </PopoverContent>
-                    </Popover>
+                   <Button
+                        type="button"
+                        variant={"outline"}
+                        className="sm:col-span-3 justify-start text-left font-normal"
+                        onClick={() => setIsDatePickerOpen(true)}
+                    >
+                        <CalendarIcon className="mr-2 h-4 w-4" />
+                        {startDate ? format(startDate, "PPP") : <span>Pick a date</span>}
+                    </Button>
                 </div>
                 {endDate && (
                      <div className="grid sm:grid-cols-4 items-center gap-2 sm:gap-4">
@@ -354,6 +352,27 @@ export function ClientContractsTable() {
             </AlertDialogFooter>
         </AlertDialogContent>
     </AlertDialog>
+
+    <Dialog open={isDatePickerOpen} onOpenChange={setIsDatePickerOpen}>
+        <DialogContent className="w-auto">
+          <DialogHeader>
+            <DialogTitle>Select Date</DialogTitle>
+          </DialogHeader>
+            <Calendar
+                mode="single"
+                selected={startDate}
+                onSelect={(date) => {
+                    setStartDate(date);
+                }}
+                initialFocus
+            />
+          <DialogFooter>
+            <DialogClose asChild>
+              <Button>Done</Button>
+            </DialogClose>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </>
   );
 }
