@@ -190,7 +190,8 @@ export function ReservationsTable() {
             return;
         }
 
-        const updateData: Partial<Reservation> = {
+        const updateData: any = {
+            startAt: fullStartDate.toISOString(),
             status: currentStatus,
         };
 
@@ -429,7 +430,7 @@ export function ReservationsTable() {
                         <Edit className="mr-2 h-4 w-4" /> Edit
                       </DropdownMenuItem>
                        {(res.status === 'Pending' || res.status === 'Active') && (
-                        <DropdownMenuItem onClick={() => handleEndSessionClick(res)} className="text-destructive">
+                        <DropdownMenuItem onClick={() => handleEndSessionClick(res)}>
                             <LogOut className="mr-2 h-4 w-4" /> End Session
                         </DropdownMenuItem>
                        )}
@@ -443,30 +444,58 @@ export function ReservationsTable() {
       </div>
 
        <Dialog open={isDatePickerOpen} onOpenChange={setIsDatePickerOpen}>
-            <DialogContent>
-                <DialogHeader>
-                    <DialogTitle>Select Date and Time</DialogTitle>
-                </DialogHeader>
-                 <div className="flex flex-col items-center gap-4">
-                    <Calendar
-                        mode="single"
-                        selected={datePickerTarget === 'start' ? startDate : endDate}
-                        onSelect={datePickerTarget === 'start' ? setStartDate : setEndDate}
-                        initialFocus
-                    />
-                    <div className="flex items-center gap-2">
-                        <Input type="number" value={datePickerTarget === 'start' ? startHour : endHour} onChange={e => datePickerTarget === 'start' ? setStartHour(e.target.value) : setEndHour(e.target.value)} min="0" max="23" className="w-20" placeholder="HH"/>
-                        <span>:</span>
-                        <Input type="number" value={datePickerTarget === 'start' ? startMinute : endMinute} onChange={e => datePickerTarget === 'start' ? setStartMinute(e.target.value) : setEndMinute(e.target.value)} min="0" max="59" className="w-20" placeholder="MM" />
-                    </div>
-                </div>
-                <DialogFooter>
-                    <DialogClose asChild>
-                        <Button>Done</Button>
-                    </DialogClose>
-                </DialogFooter>
-            </DialogContent>
-       </Dialog>
+        <DialogContent className="w-auto">
+          <DialogHeader>
+            <DialogTitle>Select Date and Time</DialogTitle>
+          </DialogHeader>
+          <div className="flex flex-col items-center gap-4">
+            <Calendar
+              mode="single"
+              selected={datePickerTarget === 'start' ? startDate : endDate}
+              onSelect={
+                datePickerTarget === 'start' ? setStartDate : setEndDate
+              }
+              initialFocus
+            />
+            <div className="flex items-center gap-2">
+              <Input
+                type="number"
+                value={datePickerTarget === 'start' ? startHour : endHour}
+                onChange={(e) =>
+                  datePickerTarget === 'start'
+                    ? setStartHour(e.target.value)
+                    : setEndHour(e.target.value)
+                }
+                min="0"
+                max="23"
+                className="w-20"
+                placeholder="HH"
+              />
+              <span>:</span>
+              <Input
+                type="number"
+                value={
+                  datePickerTarget === 'start' ? startMinute : endMinute
+                }
+                onChange={(e) =>
+                  datePickerTarget === 'start'
+                    ? setStartMinute(e.target.value)
+                    : setEndMinute(e.target.value)
+                }
+                min="0"
+                max="59"
+                className="w-20"
+                placeholder="MM"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <DialogClose asChild>
+              <Button>Done</Button>
+            </DialogClose>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
        
        <AlertDialog open={endSessionAlertOpen} onOpenChange={setEndSessionAlertOpen}>
             <AlertDialogContent>
@@ -526,7 +555,6 @@ export function ReservationsTable() {
                                 variant={"outline"}
                                 className="w-full justify-start text-left font-normal"
                                 onClick={() => openDatePicker('start')}
-                                disabled
                             >
                                 <CalendarIcon className="mr-2 h-4 w-4" />
                                 {getFullStartDate() ? format(getFullStartDate()!, "PPP p") : <span>Pick a date</span>}
