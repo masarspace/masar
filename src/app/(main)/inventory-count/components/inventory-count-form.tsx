@@ -15,7 +15,7 @@ import { useToast } from "@/hooks/use-toast";
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Calendar } from '@/components/ui/calendar';
 import { Calendar as CalendarIcon, Save, AlertCircle, FileText, RefreshCw } from 'lucide-react';
-import { format, startOfDay, endOfDay } from 'date-fns';
+import { format, startOfDay, endOfDay, isToday } from 'date-fns';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import {
   Table,
@@ -118,7 +118,7 @@ export function InventoryCountForm() {
             
             setReportData({
                 id: '', // temp ID
-                date: countDate.toISOString(),
+                date: new Date().toISOString(), // Use precise timestamp for the record itself
                 items: newReportItems
             });
 
@@ -131,17 +131,19 @@ export function InventoryCountForm() {
     };
 
     const handleConfirmSubmit = async () => {
-        if (!reportData) return;
+        if (!reportData || !countDate) return;
         setIsSubmitting(true);
+        
+        const shouldAdjustStock = isToday(countDate);
 
         try {
             await runTransaction(db, async (transaction) => {
                 const countRef = doc(collection(db, 'inventoryCounts'));
-
-                const itemsWithChanges = reportData.items.filter(item => (item.countedStock - item.systemStock) !== 0);
                 
                 // --- READ PHASE ---
-                const materialRefs = itemsWithChanges.map(item => doc(db, 'materials', item.materialId).withConverter(materialConverter));
+                // Only read materials if we need to adjust stock
+                const itemsWithChanges = reportData.items.filter(item => (item.countedStock - item.systemStock) !== 0);
+                const materialRefs = shouldAdjustStock ? itemsWithChanges.map(item => doc(db, 'materials', item.materialId).withConverter(materialConverter)) : [];
                 const materialDocs = await Promise.all(materialRefs.map(ref => transaction.get(ref)));
 
                 const materialMap = new Map(materialDocs.map(doc => [doc.id, doc]));
@@ -149,33 +151,41 @@ export function InventoryCountForm() {
                 // --- WRITE PHASE ---
                 // 1. Set the inventory count report
                 transaction.set(countRef.withConverter(inventoryCountConverter), { ...reportData, id: countRef.id });
+                
+                // 2. Update materials and create audit logs ONLY IF date is today
+                if (shouldAdjustStock) {
+                    for(const item of itemsWithChanges) {
+                        const materialDoc = materialMap.get(item.materialId);
+                        if (!materialDoc || !materialDoc.exists()) {
+                            throw new Error(`Material ${item.materialName} not found during transaction.`);
+                        }
 
-                // 2. Update materials and create audit logs
-                for(const item of itemsWithChanges) {
-                    const materialDoc = materialMap.get(item.materialId);
-                    if (!materialDoc || !materialDoc.exists()) {
-                        throw new Error(`Material ${item.materialName} not found during transaction.`);
+                        const changeRequired = item.countedStock - materialDoc.data().stock;
+                        
+                        transaction.update(materialDoc.ref, { stock: item.countedStock });
+
+                        if(changeRequired !== 0) {
+                            const auditLogRef = doc(collection(db, 'auditLog'));
+                            transaction.set(auditLogRef.withConverter(auditLogConverter), {
+                                id: auditLogRef.id,
+                                materialId: item.materialId,
+                                materialName: item.materialName,
+                                change: changeRequired,
+                                type: 'adjustment',
+                                relatedId: countRef.id,
+                                createdAt: reportData.date
+                            });
+                        }
                     }
-
-                    const changeRequired = item.countedStock - item.systemStock;
-                    const currentStock = materialDoc.data().stock;
-                    
-                    // The stock is updated based on the physical count, adjusted for changes that happened since the count date
-                    transaction.update(materialDoc.ref, { stock: currentStock + changeRequired });
-
-                    const auditLogRef = doc(collection(db, 'auditLog'));
-                    transaction.set(auditLogRef.withConverter(auditLogConverter), {
-                        id: auditLogRef.id,
-                        materialId: item.materialId,
-                        materialName: item.materialName,
-                        change: changeRequired,
-                        type: 'adjustment',
-                        relatedId: countRef.id,
-                        createdAt: reportData.date // Use the count date for the audit log
-                    });
                 }
             });
-            toast({ title: 'Inventory count saved and stock adjusted successfully!' });
+            
+            if (shouldAdjustStock) {
+                toast({ title: 'Inventory count saved!', description: 'Current stock has been adjusted.' });
+            } else {
+                 toast({ title: 'Historical inventory count saved!', description: 'Current stock was not adjusted.' });
+            }
+            
             setIsConfirmOpen(false);
             setReportData(null);
             setCounts(allMaterials.map(m => ({ materialId: m.id, countedStock: '' })));
@@ -202,7 +212,7 @@ export function InventoryCountForm() {
                     <AlertCircle className="h-4 w-4" />
                     <AlertTitle>How this works</AlertTitle>
                     <AlertDescription>
-                       Select a date and enter the physical quantity for each material you've counted. When you save, the system will calculate the historical stock for that date to determine wastage and then adjust the *current* stock levels to match your physical count. An "adjustment" entry will be created in the Audit Log for each change.
+                       Select a date and enter the physical quantity for each material. If you select today's date, the system will adjust the *current* stock levels to match your physical count. If you select a past date, the count will be saved for historical wastage analysis but will **not** alter current stock levels.
                     </AlertDescription>
                 </Alert>
                 <div className="space-y-2">
@@ -287,7 +297,7 @@ export function InventoryCountForm() {
                                 const totalWastage = count.items.reduce((sum, item) => sum + item.wastage, 0);
                                 return (
                                 <TableRow key={count.id}>
-                                    <TableCell>{format(new Date(count.date), "PPP")}</TableCell>
+                                    <TableCell>{format(new Date(count.date), "PPp")}</TableCell>
                                     <TableCell>{count.items.length}</TableCell>
                                     <TableCell className={totalWastage > 0 ? "text-destructive" : "text-green-600"}>{totalWastage.toFixed(2)}</TableCell>
                                     <TableCell className="text-right">
@@ -314,7 +324,7 @@ export function InventoryCountForm() {
             }}>
                 <DialogContent className="max-w-2xl">
                     <DialogHeader>
-                        <DialogTitle>{isConfirmOpen ? "Confirm Inventory & Adjust Stock" : `Wastage Report - ${reportData ? format(new Date(reportData.date), "PPP"): ''}`}</DialogTitle>
+                        <DialogTitle>{isConfirmOpen ? "Confirm Inventory & Adjust Stock" : `Wastage Report - ${reportData ? format(new Date(reportData.date), "PPp"): ''}`}</DialogTitle>
                         <DialogDescription>
                             {isConfirmOpen 
                                 ? "Review the calculated wastage below. Saving will update your stock levels to match the physical count and create adjustment logs."
@@ -353,7 +363,7 @@ export function InventoryCountForm() {
                          <DialogFooter>
                             <Button variant="ghost" onClick={() => setIsConfirmOpen(false)}>Cancel</Button>
                             <Button onClick={handleConfirmSubmit} disabled={isSubmitting}>
-                                {isSubmitting ? "Saving..." : "Confirm & Save"}
+                                {isSubmitting ? "Saving..." : `Confirm & Save ${isToday(countDate!) ? '(Adjust Stock)' : '(No Adjustment)'}`}
                             </Button>
                         </DialogFooter>
                     )}
@@ -363,5 +373,4 @@ export function InventoryCountForm() {
     );
 }
 
-    
     
