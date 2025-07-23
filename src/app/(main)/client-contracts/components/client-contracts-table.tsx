@@ -74,6 +74,7 @@ export function ClientContractsTable() {
   const [selectedContractId, setSelectedContractId] = React.useState<string | undefined>();
   const [startDate, setStartDate] = React.useState<Date | undefined>();
   const [endDate, setEndDate] = React.useState<Date | undefined>();
+  const [currentStatus, setCurrentStatus] = React.useState<ClientContract['status']>('Active');
   const [isDatePickerOpen, setIsDatePickerOpen] = React.useState(false);
 
   const allClients = React.useMemo(() => clientsSnapshot?.docs.map(doc => doc.data()) ?? [], [clientsSnapshot]);
@@ -107,10 +108,12 @@ export function ClientContractsTable() {
               setSelectedClientId(selectedClientContract.clientId);
               setSelectedContractId(selectedClientContract.contractId);
               setStartDate(new Date(selectedClientContract.startDate));
+              setCurrentStatus(selectedClientContract.status);
           } else {
               setSelectedClientId(undefined);
               setSelectedContractId(undefined);
               setStartDate(new Date());
+              setCurrentStatus('Active');
           }
       }
   }, [isSheetOpen, selectedClientContract]);
@@ -148,6 +151,12 @@ export function ClientContractsTable() {
         return;
     }
 
+    let status = currentStatus;
+    if (status !== 'Cancelled' && isAfter(new Date(), endDate)) {
+        status = 'Expired';
+    }
+
+
     const data = {
         clientId: client.id,
         clientName: client.name,
@@ -155,7 +164,7 @@ export function ClientContractsTable() {
         contractName: contract.name,
         startDate: startDate.toISOString(),
         endDate: endDate.toISOString(),
-        status: isAfter(new Date(), endDate) ? 'Expired' : 'Active' as ClientContract['status'],
+        status: status,
     };
 
     if (selectedClientContract) {
@@ -169,12 +178,17 @@ export function ClientContractsTable() {
     setSelectedClientContract(null);
   }
   
-  const getStatus = (endDate: string): { status: ClientContract['status'], variant: 'default' | 'secondary' | 'destructive' } => {
-      const now = new Date();
-      if (isAfter(now, new Date(endDate))) {
-          return { status: 'Expired', variant: 'secondary' };
+  const getStatusVariant = (status: ClientContract['status']): 'default' | 'secondary' | 'destructive' => {
+      switch (status) {
+          case 'Active':
+              return 'default';
+          case 'Expired':
+              return 'secondary';
+          case 'Cancelled':
+              return 'destructive';
+          default:
+              return 'outline';
       }
-      return { status: 'Active', variant: 'default' };
   };
 
   const isLoading = loading || clientsLoading || contractsLoading;
@@ -244,14 +258,14 @@ export function ClientContractsTable() {
           </TableHeader>
           <TableBody>
             {clientContracts.map((cc) => {
-                const { status, variant } = getStatus(cc.endDate);
+                const variant = getStatusVariant(cc.status);
                 return (
                   <TableRow key={cc.id}>
                     <TableCell className="font-medium">{cc.clientName}</TableCell>
                     <TableCell>{cc.contractName}</TableCell>
                     <TableCell>{format(new Date(cc.startDate), 'PP')}</TableCell>
                     <TableCell>{format(new Date(cc.endDate), 'PP')}</TableCell>
-                    <TableCell><Badge variant={variant}>{status}</Badge></TableCell>
+                    <TableCell><Badge variant={variant}>{cc.status}</Badge></TableCell>
                     <TableCell className="text-right">
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
@@ -330,6 +344,19 @@ export function ClientContractsTable() {
                         <p className="sm:col-span-3 font-medium text-muted-foreground">{format(endDate, "PPP")}</p>
                     </div>
                 )}
+                 <div className="grid sm:grid-cols-4 items-center gap-2 sm:gap-4">
+                    <Label htmlFor="status" className="sm:text-right">Status</Label>
+                    <Select name="status" value={currentStatus} onValueChange={(v) => setCurrentStatus(v as ClientContract['status'])} required>
+                        <SelectTrigger className="sm:col-span-3">
+                        <SelectValue placeholder="Select a status" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            <SelectItem value="Active">Active</SelectItem>
+                            <SelectItem value="Expired">Expired</SelectItem>
+                            <SelectItem value="Cancelled">Cancelled</SelectItem>
+                        </SelectContent>
+                    </Select>
+                </div>
               </div>
               <SheetFooter>
                   <Button type="submit">Save changes</Button>
