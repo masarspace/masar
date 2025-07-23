@@ -350,12 +350,12 @@ export function ReservationsTable() {
                 </div>
                 <div className="space-y-2">
                     <Label>Reservation Start Date &amp; Time</Label>
-                    <div className="flex items-center gap-2 flex-wrap">
+                    <div className="flex items-center gap-2">
                         <Popover>
                             <PopoverTrigger asChild>
                                 <Button
                                 variant={"outline"}
-                                className="w-full sm:w-auto flex-grow justify-start text-left font-normal"
+                                className="w-[260px] justify-start text-left font-normal"
                                 >
                                 <CalendarIcon className="mr-2 h-4 w-4" />
                                 {getFullStartDate() ? format(getFullStartDate()!, "PPP p") : <span>Pick a date</span>}
@@ -370,11 +370,9 @@ export function ReservationsTable() {
                                 />
                             </PopoverContent>
                         </Popover>
-                        <div className="flex items-center gap-1">
-                            <Input type="number" value={startHour} onChange={e => setStartHour(e.target.value)} min="0" max="23" className="w-20" placeholder="HH"/>
-                            <span>:</span>
-                            <Input type="number" value={startMinute} onChange={e => setStartMinute(e.target.value)} min="0" max="59" className="w-20" placeholder="MM" />
-                        </div>
+                        <Input type="number" value={startHour} onChange={e => setStartHour(e.target.value)} min="0" max="23" className="w-20" placeholder="HH"/>
+                        <span>:</span>
+                        <Input type="number" value={startMinute} onChange={e => setStartMinute(e.target.value)} min="0" max="59" className="w-20" placeholder="MM" />
                     </div>
                 </div>
               </div>
@@ -387,5 +385,3 @@ export function ReservationsTable() {
     </>
   );
 }
-
-    
