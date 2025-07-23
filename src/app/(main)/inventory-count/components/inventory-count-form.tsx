@@ -269,7 +269,9 @@ export function InventoryCountForm() {
                     <AlertCircle className="h-4 w-4" />
                     <AlertTitle>How this works</AlertTitle>
                     <AlertDescription>
-                       Select a date and time, then enter the physical quantity for each material. If you select today's date, the system will adjust the *current* stock levels to match your physical count. If you select a past date, the count will be saved for historical wastage analysis but will **not** alter current stock levels.
+                       To calculate wastage for a past date, the system starts with the material's current stock and works backwards. It reverses all sales, purchases, and adjustments recorded in the audit log between now and the selected count date. This provides an accurate "system stock" for that historical moment. Wastage is the difference between this calculated number and your physical count.
+                       <br/><br/>
+                       If you select today's date, the system will adjust the current stock to match your count. If you back-date the count, it will be saved for historical analysis but will not alter current stock levels.
                     </AlertDescription>
                 </Alert>
                 <div className="space-y-2">
