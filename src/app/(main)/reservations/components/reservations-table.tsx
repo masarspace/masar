@@ -176,19 +176,27 @@ export function ReservationsTable() {
     }
   }, [currentStatus, selectedReservation, endDate]);
 
+  React.useEffect(() => {
+    const fullStartDate = getFullStartDate();
+    const fullEndDate = getFullEndDate();
+    if(fullStartDate && fullEndDate && fullEndDate < fullStartDate) {
+        setEndDate(undefined);
+    }
+  }, [startDate, startHour, startMinute, getFullStartDate, getFullEndDate]);
+
 
   const handleFormSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
 
+    const fullStartDate = getFullStartDate();
+    if (!fullStartDate) {
+        toast({ variant: 'destructive', title: 'Invalid start date.' });
+        return;
+    }
+
     // --- EDITING LOGIC ---
     if (selectedReservation) {
-        const fullStartDate = getFullStartDate();
         const fullEndDate = getFullEndDate();
-
-        if (!fullStartDate) {
-            toast({ variant: 'destructive', title: 'Invalid start date.' });
-            return;
-        }
 
         const updateData: any = {
             startAt: fullStartDate.toISOString(),
@@ -250,9 +258,8 @@ export function ReservationsTable() {
     }
     
     const room = allRooms.find(r => r.id === selectedRoomId);
-    const fullStartDate = getFullStartDate();
 
-    if (!client || !room || !fullStartDate) {
+    if (!client || !room) {
         toast({ variant: 'destructive', title: 'Invalid client, room, or date selected.' });
         return;
     }
@@ -463,6 +470,7 @@ export function ReservationsTable() {
                     }
                 }
               }
+              disabled={datePickerTarget === 'end' ? { before: startDate || new Date() } : undefined}
               initialFocus
             />
             <div className="flex items-center gap-2">
