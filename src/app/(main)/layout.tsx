@@ -27,6 +27,7 @@ import {
   ClipboardList,
   FileText,
   History,
+  Boxes,
 } from "lucide-react";
 import { usePathname } from "next/navigation";
 
@@ -105,6 +106,19 @@ export default function MainLayout({
                         <Link href="/drinks">
                           <GlassWater />
                           <span>Recipes</span>
+                        </Link>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                    <SidebarMenuItem>
+                      <SidebarMenuButton
+                        asChild
+                        href="/inventory-count"
+                        isActive={pathname.startsWith("/inventory-count")}
+                        tooltip="Inventory Count"
+                      >
+                        <Link href="/inventory-count">
+                          <Boxes />
+                          <span>Inventory Count</span>
                         </Link>
                       </SidebarMenuButton>
                     </SidebarMenuItem>

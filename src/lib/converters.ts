@@ -6,7 +6,7 @@ import {
   FieldValue,
   deleteField,
 } from 'firebase/firestore';
-import type { Material, Drink, Order, PurchaseCategory, PurchaseOrder, PurchaseOrderItem, AuditLogEntry, DrinkRecipeItem } from './types';
+import type { Material, Drink, Order, PurchaseCategory, PurchaseOrder, PurchaseOrderItem, AuditLogEntry, DrinkRecipeItem, InventoryCount, InventoryCountItem } from './types';
 
 export const materialConverter: FirestoreDataConverter<Material> = {
   toFirestore(material: Material): DocumentData {
@@ -160,4 +160,32 @@ export const auditLogConverter: FirestoreDataConverter<AuditLogEntry> = {
             createdAt: data.createdAt,
         };
     },
+};
+
+export const inventoryCountConverter: FirestoreDataConverter<InventoryCount> = {
+  toFirestore(inventoryCount: InventoryCount | Omit<InventoryCount, 'id'>): DocumentData {
+     if ('id' in inventoryCount) {
+        const { id, ...data } = inventoryCount;
+        return data;
+    }
+    return inventoryCount;
+  },
+  fromFirestore(
+    snapshot: QueryDocumentSnapshot,
+    options: SnapshotOptions
+  ): InventoryCount {
+    const data = snapshot.data(options);
+    return {
+      id: snapshot.id,
+      date: data.date,
+      items: data.items.map((item: any) => ({
+        materialId: item.materialId,
+        materialName: item.materialName,
+        unit: item.unit,
+        countedStock: item.countedStock,
+        systemStock: item.systemStock,
+        wastage: item.wastage,
+      })),
+    };
+  },
 };

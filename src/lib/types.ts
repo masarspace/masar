@@ -68,3 +68,18 @@ export type AuditLogEntry = {
     relatedId: string; // POS Order ID or Purchase Order ID
     createdAt: string; // ISO string
 };
+
+export type InventoryCountItem = {
+    materialId: string;
+    materialName: string;
+    unit: Material['unit'];
+    countedStock: number;
+    systemStock: number;
+    wastage: number;
+};
+
+export type InventoryCount = {
+    id: string;
+    date: string; // ISO string
+    items: InventoryCountItem[];
+};
