@@ -85,15 +85,18 @@ export function InventoryCountForm() {
                 const material = allMaterials.find(m => m.id === item.materialId)!;
                 let systemStock = material.stock; // Start with current stock
 
-                // Get all audit logs for this material that happened *after* the count date
+                // Get all audit logs for this material
                 const auditLogQuery = query(
                     collection(db, 'auditLog'),
-                    where('materialId', '==', item.materialId),
-                    where('createdAt', '>', countTimestamp.toISOString())
+                    where('materialId', '==', item.materialId)
                 ).withConverter(auditLogConverter);
 
                 const auditLogSnapshot = await getDocs(auditLogQuery);
-                const logsAfterCount = auditLogSnapshot.docs.map(d => d.data());
+                const allLogsForMaterial = auditLogSnapshot.docs.map(d => d.data());
+                
+                // Filter logs that happened *after* the count date on the client
+                const logsAfterCount = allLogsForMaterial.filter(log => new Date(log.createdAt) > countTimestamp);
+
 
                 // Rewind the stock changes to get the historical stock
                 for (const log of logsAfterCount) {
