@@ -47,9 +47,11 @@ export default function DashboardPage() {
           </CardContent>
         </Card>
       </div>
-      <div>
+      
+      <div className="grid gap-4">
         <ExpiringContracts />
       </div>
+
     </div>
   );
 }
