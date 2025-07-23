@@ -350,13 +350,13 @@ export function ReservationsTable() {
                   </Select>
                 </div>
                 <div className="space-y-2">
-                    <Label>Reservation Start Date & Time</Label>
+                    <Label>Reservation Start Date &amp; Time</Label>
                     <div className="flex items-center gap-2 flex-wrap">
                         <Popover open={isCalendarOpen} onOpenChange={setIsCalendarOpen}>
                             <PopoverTrigger asChild>
                                 <Button
                                 variant={"outline"}
-                                className="w-full sm:w-[240px] justify-start text-left font-normal"
+                                className="w-full sm:w-auto flex-grow justify-start text-left font-normal"
                                 >
                                 <CalendarIcon className="mr-2 h-4 w-4" />
                                 {getFullStartDate() ? format(getFullStartDate()!, "PPp") : <span>Pick a date & time</span>}
