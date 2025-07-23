@@ -59,6 +59,7 @@ import { format, differenceInMinutes, setHours, setMinutes } from 'date-fns';
 import { useToast } from "@/hooks/use-toast";
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Calendar } from '@/components/ui/calendar';
+import { ScrollArea } from '@/components/ui/scroll-area';
 
 export function ReservationsTable() {
   const [snapshot, loading] = useCollection(query(collection(db, 'reservations'), orderBy('startAt', 'desc')).withConverter(reservationConverter));
@@ -400,14 +401,15 @@ export function ReservationsTable() {
        </Dialog>
 
       <Sheet open={isSheetOpen} onOpenChange={setIsSheetOpen}>
-        <SheetContent>
-            <form onSubmit={handleFormSubmit}>
-              <SheetHeader>
-                <SheetTitle>{selectedReservation ? 'Edit Reservation' : 'New Reservation'}</SheetTitle>
-                <SheetDescription>
-                  {selectedReservation ? 'Update the details for this reservation.' : 'Start a new room session for a client.'}
-                </SheetDescription>
-              </SheetHeader>
+        <SheetContent className="flex flex-col">
+            <SheetHeader>
+              <SheetTitle>{selectedReservation ? 'Edit Reservation' : 'New Reservation'}</SheetTitle>
+              <SheetDescription>
+                {selectedReservation ? 'Update the details for this reservation.' : 'Start a new room session for a client.'}
+              </SheetDescription>
+            </SheetHeader>
+            <form onSubmit={handleFormSubmit} className="flex flex-col flex-1 overflow-hidden">
+             <ScrollArea className="flex-1 pr-4">
               <div className="grid gap-4 py-4">
                 {selectedReservation ? (
                     <>
@@ -498,7 +500,8 @@ export function ReservationsTable() {
                     </>
                 )}
               </div>
-              <SheetFooter>
+              </ScrollArea>
+              <SheetFooter className="pt-4">
                   <Button type="submit">Save Changes</Button>
               </SheetFooter>
             </form>
