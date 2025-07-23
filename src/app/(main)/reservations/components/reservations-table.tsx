@@ -35,14 +35,17 @@ import {
 } from "@/components/ui/alert-dialog"
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { PlusCircle, Search, Clock, LogOut } from 'lucide-react';
+import { PlusCircle, Search, Clock, LogOut, Calendar as CalendarIcon } from 'lucide-react';
 import type { Reservation, Client, Room } from '@/lib/types';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { format, differenceInHours, differenceInMinutes } from 'date-fns';
+import { format, differenceInMinutes, setHours, setMinutes } from 'date-fns';
 import { useToast } from "@/hooks/use-toast";
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Calendar } from '@/components/ui/calendar';
 
 export function ReservationsTable() {
   const [snapshot, loading] = useCollection(query(collection(db, 'reservations'), orderBy('startAt', 'desc')).withConverter(reservationConverter));
@@ -52,6 +55,17 @@ export function ReservationsTable() {
   const [isSheetOpen, setIsSheetOpen] = React.useState(false);
   const [searchTerm, setSearchTerm] = React.useState('');
   const { toast } = useToast();
+
+  // State for the form
+  const [clientSelectionMode, setClientSelectionMode] = React.useState<'existing' | 'new'>('existing');
+  const [newClientName, setNewClientName] = React.useState('');
+  const [newClientPhone, setNewClientPhone] = React.useState('');
+  const [selectedClientId, setSelectedClientId] = React.useState<string | undefined>();
+  const [selectedRoomId, setSelectedRoomId] = React.useState<string | undefined>();
+  const [startDate, setStartDate] = React.useState<Date | undefined>(new Date());
+  const [startHour, setStartHour] = React.useState(new Date().getHours().toString().padStart(2, '0'));
+  const [startMinute, setStartMinute] = React.useState(new Date().getMinutes().toString().padStart(2, '0'));
+
 
   const allClients = React.useMemo(() => clientsSnapshot?.docs.map(doc => doc.data()) ?? [], [clientsSnapshot]);
   const allRooms = React.useMemo(() => roomsSnapshot?.docs.map(doc => doc.data()) ?? [], [roomsSnapshot]);
@@ -67,17 +81,46 @@ export function ReservationsTable() {
     );
   }, [snapshot, searchTerm]);
   
+  const getFullStartDate = React.useCallback(() => {
+    if (!startDate) return null;
+    const h = parseInt(startHour, 10);
+    const m = parseInt(startMinute, 10);
+    if (isNaN(h) || h < 0 || h > 23 || isNaN(m) || m < 0 || m > 59) return null;
+
+    return setMinutes(setHours(startDate, h), m);
+  }, [startDate, startHour, startMinute]);
+
+
   const handleFormSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    const formData = new FormData(e.currentTarget);
-    const clientId = formData.get('clientId') as string;
-    const roomId = formData.get('roomId') as string;
 
-    const client = allClients.find(c => c.id === clientId);
-    const room = allRooms.find(r => r.id === roomId);
+    let client: Client | undefined;
 
-    if (!client || !room) {
-        toast({ variant: 'destructive', title: 'Invalid client or room selected.' });
+    if (clientSelectionMode === 'new') {
+        if (!newClientName) {
+            toast({ variant: 'destructive', title: 'Please enter a name for the new client.' });
+            return;
+        }
+        try {
+            const newClientRef = await addDoc(collection(db, 'clients').withConverter(clientConverter), {
+                id: '', // Firestore will generate
+                name: newClientName,
+                phoneNumber: newClientPhone,
+            });
+            client = { id: newClientRef.id, name: newClientName, phoneNumber: newClientPhone };
+        } catch (error: any) {
+             toast({ variant: "destructive", title: "Error creating client", description: error.message });
+             return;
+        }
+    } else {
+        client = allClients.find(c => c.id === selectedClientId);
+    }
+    
+    const room = allRooms.find(r => r.id === selectedRoomId);
+    const fullStartDate = getFullStartDate();
+
+    if (!client || !room || !fullStartDate) {
+        toast({ variant: 'destructive', title: 'Invalid client, room, or date selected.' });
         return;
     }
 
@@ -88,7 +131,7 @@ export function ReservationsTable() {
         roomName: room.name,
         roomPrice: room.price,
         roomDiscount: room.discount || 0,
-        startAt: new Date().toISOString(),
+        startAt: fullStartDate.toISOString(),
         endAt: null,
         status: 'Active',
         totalCost: null,
@@ -98,6 +141,13 @@ export function ReservationsTable() {
         await addDoc(collection(db, 'reservations').withConverter(reservationConverter), reservationData);
         toast({ title: "Reservation created successfully!"});
         setIsSheetOpen(false);
+        // Reset form state
+        setClientSelectionMode('existing');
+        setNewClientName('');
+        setNewClientPhone('');
+        setSelectedClientId(undefined);
+        setSelectedRoomId(undefined);
+        setStartDate(new Date());
     } catch (error: any) {
         toast({ variant: "destructive", title: "Error creating reservation", description: error.message });
     }
@@ -107,7 +157,6 @@ export function ReservationsTable() {
     const now = new Date();
     const start = new Date(reservation.startAt);
     
-    // Calculate duration in hours, with minutes as a fraction of an hour
     const totalMinutes = differenceInMinutes(now, start);
     const durationInHours = totalMinutes / 60;
     
@@ -248,26 +297,45 @@ export function ReservationsTable() {
               <SheetHeader>
                 <SheetTitle>New Reservation</SheetTitle>
                 <SheetDescription>
-                  Start a new room session for a client. The start time will be set to the current time.
+                  Start a new room session for a client.
                 </SheetDescription>
               </SheetHeader>
               <div className="grid gap-4 py-4">
                  <div className="space-y-2">
-                  <Label htmlFor="clientId">Client</Label>
-                   <Select name="clientId" required>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select a client" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {allClients.map(client => (
-                          <SelectItem key={client.id} value={client.id}>{client.name}</SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
+                    <Label>Client</Label>
+                    <RadioGroup value={clientSelectionMode} onValueChange={(v) => setClientSelectionMode(v as 'existing' | 'new')} className="flex gap-4">
+                        <div className="flex items-center space-x-2">
+                            <RadioGroupItem value="existing" id="existing"/>
+                            <Label htmlFor="existing">Existing Client</Label>
+                        </div>
+                        <div className="flex items-center space-x-2">
+                            <RadioGroupItem value="new" id="new"/>
+                            <Label htmlFor="new">New Client</Label>
+                        </div>
+                    </RadioGroup>
+                 </div>
+                 {clientSelectionMode === 'existing' ? (
+                     <Select name="clientId" value={selectedClientId} onValueChange={setSelectedClientId} required>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select a client" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {allClients.map(client => (
+                              <SelectItem key={client.id} value={client.id}>{client.name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                 ) : (
+                    <div className="grid gap-2 p-2 border rounded-md">
+                        <Label htmlFor="newClientName">New Client Name</Label>
+                        <Input id="newClientName" value={newClientName} onChange={(e) => setNewClientName(e.target.value)} required/>
+                        <Label htmlFor="newClientPhone">Phone Number (Optional)</Label>
+                        <Input id="newClientPhone" value={newClientPhone} onChange={(e) => setNewClientPhone(e.target.value)} />
+                    </div>
+                 )}
                  <div className="space-y-2">
                   <Label htmlFor="roomId">Room</Label>
-                   <Select name="roomId" required>
+                   <Select name="roomId" value={selectedRoomId} onValueChange={setSelectedRoomId} required>
                     <SelectTrigger>
                       <SelectValue placeholder="Select a room" />
                     </SelectTrigger>
@@ -279,6 +347,33 @@ export function ReservationsTable() {
                       ))}
                     </SelectContent>
                   </Select>
+                </div>
+                <div className="space-y-2">
+                    <Label>Reservation Start Date & Time</Label>
+                    <div className="flex items-center gap-2">
+                        <Popover>
+                            <PopoverTrigger asChild>
+                                <Button
+                                variant={"outline"}
+                                className="w-[260px] justify-start text-left font-normal"
+                                >
+                                <CalendarIcon className="mr-2 h-4 w-4" />
+                                {getFullStartDate() ? format(getFullStartDate()!, "PPP p") : <span>Pick a date</span>}
+                                </Button>
+                            </PopoverTrigger>
+                            <PopoverContent className="w-auto p-0" align="start">
+                                <Calendar
+                                mode="single"
+                                selected={startDate}
+                                onSelect={setStartDate}
+                                initialFocus
+                                />
+                            </PopoverContent>
+                        </Popover>
+                        <Input type="number" value={startHour} onChange={e => setStartHour(e.target.value)} min="0" max="23" className="w-20" placeholder="HH"/>
+                        <span>:</span>
+                        <Input type="number" value={startMinute} onChange={e => setStartMinute(e.target.value)} min="0" max="59" className="w-20" placeholder="MM" />
+                    </div>
                 </div>
               </div>
               <SheetFooter>
