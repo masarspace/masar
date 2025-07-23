@@ -58,10 +58,6 @@ export function ExpiringContracts() {
         )
     }
 
-    if (expiringContracts.length === 0) {
-        return null; // Don't render the card if there are no expiring contracts
-    }
-
     return (
         <Card>
             <CardHeader>
@@ -73,36 +69,41 @@ export function ExpiringContracts() {
                 </CardDescription>
             </CardHeader>
             <CardContent>
-                <Table>
-                    <TableHeader>
-                        <TableRow>
-                            <TableHead>Client</TableHead>
-                            <TableHead>Contract</TableHead>
-                            <TableHead className="text-right">Expires On</TableHead>
-                        </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                        {expiringContracts.map(contract => {
-                            const daysLeft = differenceInDays(new Date(contract.endDate), today);
-                            return (
-                                <TableRow key={contract.id}>
-                                    <TableCell>
-                                        <Link href="/clients" className="hover:underline text-primary">
-                                            {contract.clientName}
-                                        </Link>
-                                    </TableCell>
-                                    <TableCell>{contract.contractName}</TableCell>
-                                    <TableCell className="text-right">
-                                        <div>{format(new Date(contract.endDate), 'PP')}</div>
-                                        <div className="text-xs text-muted-foreground">{daysLeft} days left</div>
-                                    </TableCell>
-                                </TableRow>
-                            )
-                        })}
-                    </TableBody>
-                </Table>
+                {expiringContracts.length > 0 ? (
+                    <Table>
+                        <TableHeader>
+                            <TableRow>
+                                <TableHead>Client</TableHead>
+                                <TableHead>Contract</TableHead>
+                                <TableHead className="text-right">Expires On</TableHead>
+                            </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                            {expiringContracts.map(contract => {
+                                const daysLeft = differenceInDays(new Date(contract.endDate), today);
+                                return (
+                                    <TableRow key={contract.id}>
+                                        <TableCell>
+                                            <Link href="/clients" className="hover:underline text-primary">
+                                                {contract.clientName}
+                                            </Link>
+                                        </TableCell>
+                                        <TableCell>{contract.contractName}</TableCell>
+                                        <TableCell className="text-right">
+                                            <div>{format(new Date(contract.endDate), 'PP')}</div>
+                                            <div className="text-xs text-muted-foreground">{daysLeft} days left</div>
+                                        </TableCell>
+                                    </TableRow>
+                                )
+                            })}
+                        </TableBody>
+                    </Table>
+                ) : (
+                    <div className="text-sm text-center text-muted-foreground py-8">
+                        No contracts are expiring in the next 30 days.
+                    </div>
+                )}
             </CardContent>
         </Card>
     );
 }
-
