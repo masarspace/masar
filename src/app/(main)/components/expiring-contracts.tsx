@@ -21,9 +21,6 @@ import { FileClock } from 'lucide-react';
 import Link from 'next/link';
 
 export function ExpiringContracts() {
-    const today = startOfToday();
-    const thirtyDaysFromNow = addDays(today, 30);
-
     const [snapshot, loading] = useCollection(
         query(
             collection(db, 'clientContracts'),
@@ -35,6 +32,9 @@ export function ExpiringContracts() {
     const expiringContracts = React.useMemo(() => {
         if (loading || !snapshot) return [];
         
+        const today = startOfToday();
+        const thirtyDaysFromNow = addDays(today, 30);
+        
         const allActiveContracts = snapshot.docs.map(doc => doc.data());
         
         return allActiveContracts.filter(contract => {
@@ -43,7 +43,7 @@ export function ExpiringContracts() {
             return endDate >= today && endDate <= thirtyDaysFromNow;
         });
 
-    }, [snapshot, loading, today, thirtyDaysFromNow]);
+    }, [snapshot, loading]);
 
 
     return (
@@ -80,7 +80,7 @@ export function ExpiringContracts() {
                         </TableHeader>
                         <TableBody>
                             {expiringContracts.map(contract => {
-                                const daysLeft = differenceInDays(new Date(contract.endDate), today);
+                                const daysLeft = differenceInDays(new Date(contract.endDate), new Date());
                                 return (
                                     <TableRow key={contract.id}>
                                         <TableCell>
@@ -91,7 +91,7 @@ export function ExpiringContracts() {
                                         <TableCell>{contract.contractName}</TableCell>
                                         <TableCell className="text-right">
                                             <div>{format(new Date(contract.endDate), 'PP')}</div>
-                                            <div className="text-xs text-muted-foreground">{daysLeft} days left</div>
+                                            <div className="text-xs text-muted-foreground">{daysLeft <= 0 ? 'Expires today' : `${daysLeft} days left`}</div>
                                         </TableCell>
                                     </TableRow>
                                 )
