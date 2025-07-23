@@ -45,6 +45,34 @@ export function ExpiringContracts() {
     }, [snapshot]);
 
 
+    if (loading) {
+        return (
+            <Card>
+                <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                        <FileClock className="w-6 h-6" /> Contracts Ending Soon
+                    </CardTitle>
+                    <CardDescription>
+                        These active contracts are set to expire in the next 30 days.
+                    </CardDescription>
+                </CardHeader>
+                <CardContent>
+                     <div className="space-y-2">
+                        {[...Array(3)].map((_, i) => (
+                           <div key={i} className="flex justify-between items-center p-2 rounded-md border">
+                               <div className="space-y-1">
+                                    <Skeleton className="h-5 w-32" />
+                                    <Skeleton className="h-4 w-24" />
+                               </div>
+                               <Skeleton className="h-5 w-28" />
+                           </div>
+                        ))}
+                    </div>
+                </CardContent>
+            </Card>
+        )
+    }
+
     return (
         <Card>
             <CardHeader>
@@ -56,19 +84,7 @@ export function ExpiringContracts() {
                 </CardDescription>
             </CardHeader>
             <CardContent>
-                {loading ? (
-                    <div className="space-y-2">
-                        {[...Array(3)].map((_, i) => (
-                           <div key={i} className="flex justify-between items-center p-2 rounded-md border">
-                               <div className="space-y-1">
-                                    <Skeleton className="h-5 w-32" />
-                                    <Skeleton className="h-4 w-24" />
-                               </div>
-                               <Skeleton className="h-5 w-28" />
-                           </div>
-                        ))}
-                    </div>
-                ) : expiringContracts.length > 0 ? (
+                {expiringContracts.length > 0 ? (
                     <Table>
                         <TableHeader>
                             <TableRow>
