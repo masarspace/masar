@@ -68,6 +68,7 @@ export function ReservationsTable() {
 
   const [isSheetOpen, setIsSheetOpen] = React.useState(false);
   const [isDatePickerOpen, setIsDatePickerOpen] = React.useState(false);
+  const [datePickerTarget, setDatePickerTarget] = React.useState<'start' | 'end'>('start');
   const [searchTerm, setSearchTerm] = React.useState('');
   const { toast } = useToast();
   
@@ -82,6 +83,9 @@ export function ReservationsTable() {
   const [startDate, setStartDate] = React.useState<Date | undefined>(new Date());
   const [startHour, setStartHour] = React.useState(new Date().getHours().toString().padStart(2, '0'));
   const [startMinute, setStartMinute] = React.useState(new Date().getMinutes().toString().padStart(2, '0'));
+  const [endDate, setEndDate] = React.useState<Date | undefined>();
+  const [endHour, setEndHour] = React.useState(new Date().getHours().toString().padStart(2, '0'));
+  const [endMinute, setEndMinute] = React.useState(new Date().getMinutes().toString().padStart(2, '0'));
   const [currentStatus, setCurrentStatus] = React.useState<Reservation['status']>('Pending');
 
 
@@ -108,6 +112,16 @@ export function ReservationsTable() {
     return setMinutes(setHours(startDate, h), m);
   }, [startDate, startHour, startMinute]);
 
+  const getFullEndDate = React.useCallback(() => {
+    if (!endDate) return null;
+    const h = parseInt(endHour, 10);
+    const m = parseInt(endMinute, 10);
+    if (isNaN(h) || h < 0 || h > 23 || isNaN(m) || m < 0 || m > 59) return null;
+
+    return setMinutes(setHours(endDate, h), m);
+  }, [endDate, endHour, endMinute]);
+
+
   const resetForm = () => {
     setSelectedReservation(null);
     setClientSelectionMode('existing');
@@ -119,42 +133,97 @@ export function ReservationsTable() {
     setStartDate(now);
     setStartHour(now.getHours().toString().padStart(2, '0'));
     setStartMinute(now.getMinutes().toString().padStart(2, '0'));
+    setEndDate(undefined);
+    setEndHour(now.getHours().toString().padStart(2, '0'));
+    setEndMinute(now.getMinutes().toString().padStart(2, '0'));
     setCurrentStatus('Pending');
   };
   
   React.useEffect(() => {
-    if (isSheetOpen && selectedReservation) {
-        const start = new Date(selectedReservation.startAt);
-        setSelectedClientId(selectedReservation.clientId);
-        setSelectedRoomId(selectedReservation.roomId);
-        setStartDate(start);
-        setStartHour(start.getHours().toString().padStart(2, '0'));
-        setStartMinute(start.getMinutes().toString().padStart(2, '0'));
-        setCurrentStatus(selectedReservation.status);
-    } else {
-        resetForm();
+    if (isSheetOpen) {
+      if (selectedReservation) {
+          const start = new Date(selectedReservation.startAt);
+          setSelectedClientId(selectedReservation.clientId);
+          setSelectedRoomId(selectedReservation.roomId);
+          setStartDate(start);
+          setStartHour(start.getHours().toString().padStart(2, '0'));
+          setStartMinute(start.getMinutes().toString().padStart(2, '0'));
+          setCurrentStatus(selectedReservation.status);
+
+          if (selectedReservation.endAt) {
+              const end = new Date(selectedReservation.endAt);
+              setEndDate(end);
+              setEndHour(end.getHours().toString().padStart(2, '0'));
+              setEndMinute(end.getMinutes().toString().padStart(2, '0'));
+          } else {
+              const now = new Date();
+              setEndDate(undefined);
+              setEndHour(now.getHours().toString().padStart(2, '0'));
+              setEndMinute(now.getMinutes().toString().padStart(2, '0'));
+          }
+      } else {
+          resetForm();
+      }
     }
   }, [isSheetOpen, selectedReservation]);
+
+  React.useEffect(() => {
+    if(selectedReservation && currentStatus === 'Completed' && !endDate) {
+      setEndDate(new Date());
+    }
+  }, [currentStatus, selectedReservation, endDate]);
 
 
   const handleFormSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
 
+    // --- EDITING LOGIC ---
     if (selectedReservation) {
-        // Handle editing
-        if (currentStatus === 'Completed' && !selectedReservation.endAt) {
-             handleEndSession(selectedReservation);
-        } else {
-            await updateDoc(doc(db, 'reservations', selectedReservation.id), {
-                status: currentStatus,
-            });
-            toast({ title: "Reservation updated!"});
+        const fullStartDate = getFullStartDate();
+        const fullEndDate = getFullEndDate();
+
+        if (!fullStartDate) {
+            toast({ variant: 'destructive', title: 'Invalid start date.' });
+            return;
         }
-        setIsSheetOpen(false);
+
+        const updateData: Partial<Reservation> = {
+            status: currentStatus,
+        };
+
+        if (currentStatus === 'Completed') {
+            const finalEndDate = fullEndDate || new Date();
+            if (finalEndDate < fullStartDate) {
+                toast({ variant: 'destructive', title: 'End date cannot be before start date.' });
+                return;
+            }
+
+            const totalMinutes = Math.max(0, differenceInMinutes(finalEndDate, fullStartDate));
+            const durationInHours = totalMinutes / 60;
+            const pricePerHour = selectedReservation.roomPrice;
+            const discountPercentage = selectedReservation.roomDiscount;
+            const discountedPrice = pricePerHour * (1 - discountPercentage / 100);
+            const totalCost = durationInHours * discountedPrice;
+            
+            updateData.endAt = finalEndDate.toISOString();
+            updateData.totalCost = totalCost;
+
+        } else {
+            updateData.endAt = null;
+            updateData.totalCost = null;
+        }
+
+        try {
+            await updateDoc(doc(db, 'reservations', selectedReservation.id), updateData);
+            toast({ title: "Reservation updated!"});
+            setIsSheetOpen(false);
+        } catch (error: any) {
+            toast({ variant: "destructive", title: "Error updating reservation", description: error.message });
+        }
         return;
     }
 
-    // Handle creating new reservation
+    // --- CREATING LOGIC ---
     let client: Client | undefined;
     if (clientSelectionMode === 'new') {
         if (!newClientName) {
@@ -206,34 +275,6 @@ export function ReservationsTable() {
     }
   }
 
-  const handleEndSession = async (reservation: Reservation) => {
-    const now = new Date();
-    const start = new Date(reservation.startAt);
-    
-    const totalMinutes = Math.max(0, differenceInMinutes(now, start));
-    const durationInHours = totalMinutes / 60;
-    
-    const pricePerHour = reservation.roomPrice;
-    const discountPercentage = reservation.roomDiscount;
-
-    const discountedPrice = pricePerHour * (1 - discountPercentage / 100);
-    const totalCost = durationInHours * discountedPrice;
-
-    try {
-        await updateDoc(doc(db, 'reservations', reservation.id), {
-            endAt: now.toISOString(),
-            status: 'Completed',
-            totalCost: totalCost,
-        });
-        toast({
-            title: "Session Ended",
-            description: `Total cost for ${reservation.roomName} is $${totalCost.toFixed(2)}.`
-        });
-    } catch(error: any) {
-         toast({ variant: "destructive", title: "Error ending session", description: error.message });
-    }
-  }
-  
   const handleEditClick = (reservation: Reservation) => {
       setSelectedReservation(reservation);
       setIsSheetOpen(true);
@@ -242,6 +283,11 @@ export function ReservationsTable() {
   const handleAddClick = () => {
       setSelectedReservation(null);
       setIsSheetOpen(true);
+  }
+
+  const openDatePicker = (target: 'start' | 'end') => {
+      setDatePickerTarget(target);
+      setIsDatePickerOpen(true);
   }
 
   const isLoading = loading || clientsLoading || roomsLoading;
@@ -344,27 +390,6 @@ export function ReservationsTable() {
                        <DropdownMenuItem onClick={() => handleEditClick(res)}>
                         <Edit className="mr-2 h-4 w-4" /> Edit
                       </DropdownMenuItem>
-                      {res.status === 'Active' && (
-                        <AlertDialog>
-                          <AlertDialogTrigger asChild>
-                            <DropdownMenuItem onSelect={(e) => e.preventDefault()}>
-                               <LogOut className="mr-2 h-4 w-4 text-destructive"/> End Session
-                            </DropdownMenuItem>
-                          </AlertDialogTrigger>
-                          <AlertDialogContent>
-                            <AlertDialogHeader>
-                              <AlertDialogTitle>End Room Session?</AlertDialogTitle>
-                              <AlertDialogDescription>
-                                This will mark the session as completed and calculate the final cost. This action cannot be undone.
-                              </AlertDialogDescription>
-                            </AlertDialogHeader>
-                            <AlertDialogFooter>
-                              <AlertDialogCancel>Cancel</AlertDialogCancel>
-                              <AlertDialogAction onClick={() => handleEndSession(res)}>Confirm & End Session</AlertDialogAction>
-                            </AlertDialogFooter>
-                          </AlertDialogContent>
-                        </AlertDialog>
-                      )}
                     </DropdownMenuContent>
                   </DropdownMenu>
                 </TableCell>
@@ -382,14 +407,14 @@ export function ReservationsTable() {
                  <div className="flex flex-col items-center gap-4">
                     <Calendar
                         mode="single"
-                        selected={startDate}
-                        onSelect={setStartDate}
+                        selected={datePickerTarget === 'start' ? startDate : endDate}
+                        onSelect={datePickerTarget === 'start' ? setStartDate : setEndDate}
                         initialFocus
                     />
                     <div className="flex items-center gap-2">
-                        <Input type="number" value={startHour} onChange={e => setStartHour(e.target.value)} min="0" max="23" className="w-20" placeholder="HH"/>
+                        <Input type="number" value={datePickerTarget === 'start' ? startHour : endHour} onChange={e => datePickerTarget === 'start' ? setStartHour(e.target.value) : setEndHour(e.target.value)} min="0" max="23" className="w-20" placeholder="HH"/>
                         <span>:</span>
-                        <Input type="number" value={startMinute} onChange={e => setStartMinute(e.target.value)} min="0" max="59" className="w-20" placeholder="MM" />
+                        <Input type="number" value={datePickerTarget === 'start' ? startMinute : endMinute} onChange={e => datePickerTarget === 'start' ? setStartMinute(e.target.value) : setEndMinute(e.target.value)} min="0" max="59" className="w-20" placeholder="MM" />
                     </div>
                 </div>
                 <DialogFooter>
@@ -435,6 +460,33 @@ export function ReservationsTable() {
                                 </SelectContent>
                             </Select>
                         </div>
+                        <div className="space-y-2">
+                            <Label>Start Date & Time</Label>
+                            <Button
+                                type="button"
+                                variant={"outline"}
+                                className="w-full justify-start text-left font-normal"
+                                onClick={() => openDatePicker('start')}
+                                disabled
+                            >
+                                <CalendarIcon className="mr-2 h-4 w-4" />
+                                {getFullStartDate() ? format(getFullStartDate()!, "PPP p") : <span>Pick a date</span>}
+                            </Button>
+                        </div>
+                        {(currentStatus === 'Completed' || selectedReservation.endAt) && (
+                            <div className="space-y-2">
+                                <Label>End Date & Time</Label>
+                                <Button
+                                    type="button"
+                                    variant={"outline"}
+                                    className="w-full justify-start text-left font-normal"
+                                    onClick={() => openDatePicker('end')}
+                                >
+                                    <CalendarIcon className="mr-2 h-4 w-4" />
+                                    {getFullEndDate() ? format(getFullEndDate()!, "PPP p") : <span>Pick a date</span>}
+                                </Button>
+                            </div>
+                        )}
                     </>
                 ) : (
                     <>
@@ -486,12 +538,12 @@ export function ReservationsTable() {
                           </Select>
                         </div>
                         <div className="space-y-2">
-                            <Label>Reservation Start Date &amp; Time</Label>
+                            <Label>Reservation Start Date & Time</Label>
                             <Button
                                 type="button"
                                 variant={"outline"}
                                 className="w-full justify-start text-left font-normal"
-                                onClick={() => setIsDatePickerOpen(true)}
+                                onClick={() => openDatePicker('start')}
                             >
                                 <CalendarIcon className="mr-2 h-4 w-4" />
                                 {getFullStartDate() ? format(getFullStartDate()!, "PPP p") : <span>Pick a date</span>}
