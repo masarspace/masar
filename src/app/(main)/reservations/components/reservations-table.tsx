@@ -28,7 +28,6 @@ import {
     DialogHeader,
     DialogTitle,
     DialogFooter,
-    DialogTrigger,
     DialogClose
 } from '@/components/ui/dialog';
 import {
@@ -42,9 +41,15 @@ import {
   AlertDialogTitle,
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { PlusCircle, Search, Clock, LogOut, Calendar as CalendarIcon } from 'lucide-react';
+import { PlusCircle, Search, Clock, LogOut, Calendar as CalendarIcon, MoreHorizontal, Edit } from 'lucide-react';
 import type { Reservation, Client, Room } from '@/lib/types';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -64,6 +69,8 @@ export function ReservationsTable() {
   const [isDatePickerOpen, setIsDatePickerOpen] = React.useState(false);
   const [searchTerm, setSearchTerm] = React.useState('');
   const { toast } = useToast();
+  
+  const [selectedReservation, setSelectedReservation] = React.useState<Reservation | null>(null);
 
   // State for the form
   const [clientSelectionMode, setClientSelectionMode] = React.useState<'existing' | 'new'>('existing');
@@ -74,6 +81,7 @@ export function ReservationsTable() {
   const [startDate, setStartDate] = React.useState<Date | undefined>(new Date());
   const [startHour, setStartHour] = React.useState(new Date().getHours().toString().padStart(2, '0'));
   const [startMinute, setStartMinute] = React.useState(new Date().getMinutes().toString().padStart(2, '0'));
+  const [currentStatus, setCurrentStatus] = React.useState<Reservation['status']>('Active');
 
 
   const allClients = React.useMemo(() => clientsSnapshot?.docs.map(doc => doc.data()) ?? [], [clientsSnapshot]);
@@ -99,12 +107,54 @@ export function ReservationsTable() {
     return setMinutes(setHours(startDate, h), m);
   }, [startDate, startHour, startMinute]);
 
+  const resetForm = () => {
+    setSelectedReservation(null);
+    setClientSelectionMode('existing');
+    setNewClientName('');
+    setNewClientPhone('');
+    setSelectedClientId(undefined);
+    setSelectedRoomId(undefined);
+    const now = new Date();
+    setStartDate(now);
+    setStartHour(now.getHours().toString().padStart(2, '0'));
+    setStartMinute(now.getMinutes().toString().padStart(2, '0'));
+    setCurrentStatus('Active');
+  };
+  
+  React.useEffect(() => {
+    if (isSheetOpen && selectedReservation) {
+        const start = new Date(selectedReservation.startAt);
+        setSelectedClientId(selectedReservation.clientId);
+        setSelectedRoomId(selectedReservation.roomId);
+        setStartDate(start);
+        setStartHour(start.getHours().toString().padStart(2, '0'));
+        setStartMinute(start.getMinutes().toString().padStart(2, '0'));
+        setCurrentStatus(selectedReservation.status);
+    } else {
+        resetForm();
+    }
+  }, [isSheetOpen, selectedReservation]);
+
 
   const handleFormSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
 
-    let client: Client | undefined;
+    if (selectedReservation) {
+        // Handle editing
+        if (currentStatus === 'Completed' && !selectedReservation.endAt) {
+             handleEndSession(selectedReservation);
+        } else {
+            await updateDoc(doc(db, 'reservations', selectedReservation.id), {
+                status: currentStatus,
+            });
+            toast({ title: "Reservation updated!"});
+        }
+        setIsSheetOpen(false);
+        return;
+    }
 
+    // Handle creating new reservation
+    let client: Client | undefined;
     if (clientSelectionMode === 'new') {
         if (!newClientName) {
             toast({ variant: 'destructive', title: 'Please enter a name for the new client.' });
@@ -112,7 +162,7 @@ export function ReservationsTable() {
         }
         try {
             const newClientRef = await addDoc(collection(db, 'clients').withConverter(clientConverter), {
-                id: '', // Firestore will generate
+                id: '',
                 name: newClientName,
                 phoneNumber: newClientPhone,
             });
@@ -150,13 +200,6 @@ export function ReservationsTable() {
         await addDoc(collection(db, 'reservations').withConverter(reservationConverter), reservationData);
         toast({ title: "Reservation created successfully!"});
         setIsSheetOpen(false);
-        // Reset form state
-        setClientSelectionMode('existing');
-        setNewClientName('');
-        setNewClientPhone('');
-        setSelectedClientId(undefined);
-        setSelectedRoomId(undefined);
-        setStartDate(new Date());
     } catch (error: any) {
         toast({ variant: "destructive", title: "Error creating reservation", description: error.message });
     }
@@ -166,7 +209,7 @@ export function ReservationsTable() {
     const now = new Date();
     const start = new Date(reservation.startAt);
     
-    const totalMinutes = differenceInMinutes(now, start);
+    const totalMinutes = Math.max(0, differenceInMinutes(now, start));
     const durationInHours = totalMinutes / 60;
     
     const pricePerHour = reservation.roomPrice;
@@ -188,6 +231,16 @@ export function ReservationsTable() {
     } catch(error: any) {
          toast({ variant: "destructive", title: "Error ending session", description: error.message });
     }
+  }
+  
+  const handleEditClick = (reservation: Reservation) => {
+      setSelectedReservation(reservation);
+      setIsSheetOpen(true);
+  }
+  
+  const handleAddClick = () => {
+      setSelectedReservation(null);
+      setIsSheetOpen(true);
   }
 
   const isLoading = loading || clientsLoading || roomsLoading;
@@ -243,7 +296,7 @@ export function ReservationsTable() {
                 onChange={(e) => setSearchTerm(e.target.value)}
             />
         </div>
-        <Button onClick={() => setIsSheetOpen(true)}><PlusCircle className="mr-2 h-4 w-4" /> New Reservation</Button>
+        <Button onClick={handleAddClick}><PlusCircle className="mr-2 h-4 w-4" /> New Reservation</Button>
       </div>
       <div className="rounded-md border">
         <Table>
@@ -270,30 +323,44 @@ export function ReservationsTable() {
                 <TableCell>{res.endAt ? format(new Date(res.endAt), 'PPp') : 'Active'}</TableCell>
                 <TableCell>{res.totalCost ? `$${res.totalCost.toFixed(2)}` : 'N/A'}</TableCell>
                  <TableCell>
-                  <Badge variant={res.status === 'Completed' ? 'default' : 'secondary'}>
+                  <Badge variant={res.status === 'Completed' ? 'default' : res.status === 'Active' ? 'secondary' : 'destructive'}>
                     {res.status}
                   </Badge>
                 </TableCell>
                 <TableCell className="text-right">
-                  {res.status === 'Active' && (
-                     <AlertDialog>
-                      <AlertDialogTrigger asChild>
-                         <Button variant="outline" size="sm"><LogOut className="mr-2 h-4 w-4"/> End Session</Button>
-                      </AlertDialogTrigger>
-                      <AlertDialogContent>
-                        <AlertDialogHeader>
-                          <AlertDialogTitle>End Room Session?</AlertDialogTitle>
-                          <AlertDialogDescription>
-                            This will mark the session as completed and calculate the final cost. This action cannot be undone.
-                          </AlertDialogDescription>
-                        </AlertDialogHeader>
-                        <AlertDialogFooter>
-                          <AlertDialogCancel>Cancel</AlertDialogCancel>
-                          <AlertDialogAction onClick={() => handleEndSession(res)}>Confirm & End Session</AlertDialogAction>
-                        </AlertDialogFooter>
-                      </AlertDialogContent>
-                    </AlertDialog>
-                  )}
+                   <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="ghost" className="h-8 w-8 p-0">
+                        <MoreHorizontal className="h-4 w-4" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
+                       <DropdownMenuItem onClick={() => handleEditClick(res)}>
+                        <Edit className="mr-2 h-4 w-4" /> Edit
+                      </DropdownMenuItem>
+                      {res.status === 'Active' && (
+                        <AlertDialog>
+                          <AlertDialogTrigger asChild>
+                            <DropdownMenuItem onSelect={(e) => e.preventDefault()}>
+                               <LogOut className="mr-2 h-4 w-4 text-destructive"/> End Session
+                            </DropdownMenuItem>
+                          </AlertDialogTrigger>
+                          <AlertDialogContent>
+                            <AlertDialogHeader>
+                              <AlertDialogTitle>End Room Session?</AlertDialogTitle>
+                              <AlertDialogDescription>
+                                This will mark the session as completed and calculate the final cost. This action cannot be undone.
+                              </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                              <AlertDialogCancel>Cancel</AlertDialogCancel>
+                              <AlertDialogAction onClick={() => handleEndSession(res)}>Confirm & End Session</AlertDialogAction>
+                            </AlertDialogFooter>
+                          </AlertDialogContent>
+                        </AlertDialog>
+                      )}
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                 </TableCell>
               </TableRow>
             ))}
@@ -331,74 +398,102 @@ export function ReservationsTable() {
         <SheetContent>
             <form onSubmit={handleFormSubmit}>
               <SheetHeader>
-                <SheetTitle>New Reservation</SheetTitle>
+                <SheetTitle>{selectedReservation ? 'Edit Reservation' : 'New Reservation'}</SheetTitle>
                 <SheetDescription>
-                  Start a new room session for a client.
+                  {selectedReservation ? 'Update the details for this reservation.' : 'Start a new room session for a client.'}
                 </SheetDescription>
               </SheetHeader>
               <div className="grid gap-4 py-4">
-                 <div className="space-y-2">
-                    <Label>Client</Label>
-                    <RadioGroup value={clientSelectionMode} onValueChange={(v) => setClientSelectionMode(v as 'existing' | 'new')} className="flex gap-4">
-                        <div className="flex items-center space-x-2">
-                            <RadioGroupItem value="existing" id="existing"/>
-                            <Label htmlFor="existing">Existing Client</Label>
+                {selectedReservation ? (
+                    <>
+                        <div className="space-y-1">
+                            <Label>Client</Label>
+                            <p className="font-medium">{selectedReservation.clientName}</p>
                         </div>
-                        <div className="flex items-center space-x-2">
-                            <RadioGroupItem value="new" id="new"/>
-                            <Label htmlFor="new">New Client</Label>
+                        <div className="space-y-1">
+                            <Label>Room</Label>
+                            <p className="font-medium">{selectedReservation.roomName}</p>
                         </div>
-                    </RadioGroup>
-                 </div>
-                 {clientSelectionMode === 'existing' ? (
-                     <Select name="clientId" value={selectedClientId} onValueChange={setSelectedClientId} required>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select a client" />
-                        </SelectTrigger>
-                        <SelectContent>
-                          {allClients.map(client => (
-                              <SelectItem key={client.id} value={client.id}>{client.name}</SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                 ) : (
-                    <div className="grid gap-2 p-2 border rounded-md">
-                        <Label htmlFor="newClientName">New Client Name</Label>
-                        <Input id="newClientName" value={newClientName} onChange={(e) => setNewClientName(e.target.value)} required/>
-                        <Label htmlFor="newClientPhone">Phone Number (Optional)</Label>
-                        <Input id="newClientPhone" value={newClientPhone} onChange={(e) => setNewClientPhone(e.target.value)} />
-                    </div>
-                 )}
-                 <div className="space-y-2">
-                  <Label htmlFor="roomId">Room</Label>
-                   <Select name="roomId" value={selectedRoomId} onValueChange={setSelectedRoomId} required>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select a room" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {allRooms.map(room => (
-                          <SelectItem key={room.id} value={room.id}>
-                            {room.name} (${room.price}/hr)
-                          </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2">
-                    <Label>Reservation Start Date &amp; Time</Label>
-                    <Button
-                        type="button"
-                        variant={"outline"}
-                        className="w-full justify-start text-left font-normal"
-                        onClick={() => setIsDatePickerOpen(true)}
-                    >
-                        <CalendarIcon className="mr-2 h-4 w-4" />
-                        {getFullStartDate() ? format(getFullStartDate()!, "PPP p") : <span>Pick a date</span>}
-                    </Button>
-                </div>
+                         <div className="space-y-2">
+                            <Label htmlFor="status">Status</Label>
+                            <Select name="status" value={currentStatus} onValueChange={(value) => setCurrentStatus(value as Reservation['status'])}>
+                                <SelectTrigger>
+                                <SelectValue placeholder="Select a status" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="Active">Active</SelectItem>
+                                    <SelectItem value="Completed">Completed</SelectItem>
+                                    <SelectItem value="Cancelled">Cancelled</SelectItem>
+                                </SelectContent>
+                            </Select>
+                        </div>
+                    </>
+                ) : (
+                    <>
+                         <div className="space-y-2">
+                            <Label>Client</Label>
+                            <RadioGroup value={clientSelectionMode} onValueChange={(v) => setClientSelectionMode(v as 'existing' | 'new')} className="flex gap-4">
+                                <div className="flex items-center space-x-2">
+                                    <RadioGroupItem value="existing" id="existing"/>
+                                    <Label htmlFor="existing">Existing Client</Label>
+                                </div>
+                                <div className="flex items-center space-x-2">
+                                    <RadioGroupItem value="new" id="new"/>
+                                    <Label htmlFor="new">New Client</Label>
+                                </div>
+                            </RadioGroup>
+                         </div>
+                         {clientSelectionMode === 'existing' ? (
+                             <Select name="clientId" value={selectedClientId} onValueChange={setSelectedClientId} required>
+                                <SelectTrigger>
+                                  <SelectValue placeholder="Select a client" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                  {allClients.map(client => (
+                                      <SelectItem key={client.id} value={client.id}>{client.name}</SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                         ) : (
+                            <div className="grid gap-2 p-2 border rounded-md">
+                                <Label htmlFor="newClientName">New Client Name</Label>
+                                <Input id="newClientName" value={newClientName} onChange={(e) => setNewClientName(e.target.value)} required/>
+                                <Label htmlFor="newClientPhone">Phone Number (Optional)</Label>
+                                <Input id="newClientPhone" value={newClientPhone} onChange={(e) => setNewClientPhone(e.target.value)} />
+                            </div>
+                         )}
+                         <div className="space-y-2">
+                          <Label htmlFor="roomId">Room</Label>
+                           <Select name="roomId" value={selectedRoomId} onValueChange={setSelectedRoomId} required>
+                            <SelectTrigger>
+                              <SelectValue placeholder="Select a room" />
+                            </SelectTrigger>
+                            <SelectContent>
+                              {allRooms.map(room => (
+                                  <SelectItem key={room.id} value={room.id}>
+                                    {room.name} (${room.price}/hr)
+                                  </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                        </div>
+                        <div className="space-y-2">
+                            <Label>Reservation Start Date &amp; Time</Label>
+                            <Button
+                                type="button"
+                                variant={"outline"}
+                                className="w-full justify-start text-left font-normal"
+                                onClick={() => setIsDatePickerOpen(true)}
+                            >
+                                <CalendarIcon className="mr-2 h-4 w-4" />
+                                {getFullStartDate() ? format(getFullStartDate()!, "PPP p") : <span>Pick a date</span>}
+                            </Button>
+                        </div>
+                    </>
+                )}
               </div>
               <SheetFooter>
-                  <Button type="submit">Start Reservation</Button>
+                  <Button type="submit">Save Changes</Button>
               </SheetFooter>
             </form>
         </SheetContent>
@@ -406,3 +501,5 @@ export function ReservationsTable() {
     </>
   );
 }
+
+    

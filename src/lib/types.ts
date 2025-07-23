@@ -121,6 +121,8 @@ export type Reservation = {
     roomDiscount: number;
     startAt: string; // ISO string
     endAt: string | null; // ISO string
-    status: 'Active' | 'Completed';
+    status: 'Active' | 'Completed' | 'Cancelled';
     totalCost: number | null;
 };
+
+    
