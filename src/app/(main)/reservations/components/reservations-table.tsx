@@ -65,6 +65,7 @@ export function ReservationsTable() {
   const [startDate, setStartDate] = React.useState<Date | undefined>(new Date());
   const [startHour, setStartHour] = React.useState(new Date().getHours().toString().padStart(2, '0'));
   const [startMinute, setStartMinute] = React.useState(new Date().getMinutes().toString().padStart(2, '0'));
+  const [isCalendarOpen, setIsCalendarOpen] = React.useState(false);
 
 
   const allClients = React.useMemo(() => clientsSnapshot?.docs.map(doc => doc.data()) ?? [], [clientsSnapshot]);
@@ -351,21 +352,24 @@ export function ReservationsTable() {
                 <div className="space-y-2">
                     <Label>Reservation Start Date & Time</Label>
                     <div className="flex items-center gap-2 flex-wrap">
-                        <Popover>
+                        <Popover open={isCalendarOpen} onOpenChange={setIsCalendarOpen}>
                             <PopoverTrigger asChild>
                                 <Button
                                 variant={"outline"}
                                 className="w-full sm:w-[240px] justify-start text-left font-normal"
                                 >
                                 <CalendarIcon className="mr-2 h-4 w-4" />
-                                {getFullStartDate() ? format(getFullStartDate()!, "PPP") : <span>Pick a date</span>}
+                                {getFullStartDate() ? format(getFullStartDate()!, "PPp") : <span>Pick a date & time</span>}
                                 </Button>
                             </PopoverTrigger>
                             <PopoverContent className="w-auto p-0" align="start">
                                 <Calendar
                                 mode="single"
                                 selected={startDate}
-                                onSelect={setStartDate}
+                                onSelect={(date) => {
+                                    setStartDate(date);
+                                    setIsCalendarOpen(false);
+                                }}
                                 initialFocus
                                 />
                             </PopoverContent>
